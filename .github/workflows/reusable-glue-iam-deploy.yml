@@ -1,0 +1,64 @@
+name: Reusable Glue IAM Role Deployment Workflow
+on:
+  workflow_call:
+    inputs:
+      GluePrincipalArn:
+        required: false
+        type: string
+      RunnerEnvironment:
+        required: true
+        type: string
+      AWSAccountNumber:
+        required: true
+        type: string
+      CFStackName:
+        required: true
+        type: string
+      Environment:
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read # Required for actions/checkout@v3
+
+env:
+  AWS_REGION: "ap-southeast-2"
+  CF_Template: "cloudformation/templates/glue_iam.yml"
+  GitHub_IAM_ROLE: "GitHubRunnerPEXAOneDataRole"
+
+jobs:
+  validate-deploy-infra:
+    name: Validate and Deploy Infra
+    runs-on: [ deploy , "${{ inputs.RunnerEnvironment }}" ]
+    environment: ${{ inputs.Environment }}
+    steps:
+    - name: Checkout Source
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ env.github_ref }}
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v3
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.AWSAccountNumber }}:role/${{ env.GitHub_IAM_ROLE }}
+        role-duration-seconds: 900
+        role-skip-session-tagging: true
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Validate Cloudformation Template
+      run: aws cloudformation validate-template --template-body file://${{ env.CF_Template }}
+
+    - name: Deploy Cloudformation Stack
+      uses: PEXA-AU/aws-cloudformation-github-deploy@1.2.0
+      with:
+        name: ${{ inputs.CFStackName }}
+        template: ${{ env.CF_Template }}
+        capabilities: 'CAPABILITY_NAMED_IAM'
+        no-fail-on-empty-changeset: '1'
+        tail-events: "1"
+        event-timezone: "Australia/Melbourne"
+        parameter-overrides: >-
+          GluePrincipalArn=${{ inputs.GluePrincipalArn }},
+          CFStackName=${{ inputs.CFStackName }}
+

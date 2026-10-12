@@ -1,0 +1,90 @@
+name: NON-PROD-Deploy-Role-onedata-pexakey-exchg-snowflake-role-deploy [Data-NP] ( should run after Deploy-onedata-pexakey-resources-data)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/DD-*
+      - develop
+    paths:
+      - '.github/workflows/onedata-pexakey-snowflake-iam-data-nonprod-deploy.yml'
+      - 'cloudformation/templates/snowflake_iam_data.yml'
+      - 'cloudformation/parameters/resources-dev/onedata-pexakey-resources/onedata_pexakey-snowflake_iam_data.properties'
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+
+
+jobs:
+
+  dev-datanp-onedata-pexakey-exchg-snowflake-role-deploy:
+    name: DEV - Onedata pexakey exchg snowflake role deploy
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push' 
+    runs-on: [non-prod, deploy] 
+    environment: dev
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+          ls -lrt
+          Environment='dev'
+          StackName='snowflake_iam_data'
+          Stack='snowflake-iam-data'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-pexakey-resources/onedata-pexakey-${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Stack=$Stack" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "onedata-pexakey-${{ steps.get-parameter.outputs.Stack }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+
+  tst-datanp-onedata-pexakey-exchg-snowflake-role-deploy:
+    name: TST - Onedata pexakey exchg snowflake role deploy
+    if: startsWith(github.ref ,'refs/heads/develop') && github.event_name == 'push' 
+    runs-on: [non-prod, deploy] 
+    environment: tst
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+          ls -lrt
+          Environment='tst'
+          StackName='snowflake_iam_data'
+          Stack='snowflake-iam-data'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-pexakey-resources/onedata-pexakey-${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Stack=$Stack" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "onedata-pexakey-${{ steps.get-parameter.outputs.Stack }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"

@@ -1,0 +1,17 @@
+{
+  "name": "qos-execute-tasks",
+  "description": "Guided execution with automatic command execution by default.",
+  "prompt": "You are executing implementation tasks. The feature folder path will be provided in the user message. Execute tasks using TDD: for each task in tasks.md, (1) identify incomplete tasks ([ ] checkboxes), (2) resume from first incomplete task, (3) restate the goal, (4) propose code changes, (5) propose tests, (6) suggest and execute commands, (7) CRITICAL: mark task complete by updating tasks.md - change [ ] to [x]. By default, commands are executed automatically (QOS_AUTO_EXEC=1 by default). Set QOS_AUTO_EXEC=0 to disable automatic execution, or QOS_EXEC_DRY_RUN=1 to only show commands without executing. Never run destructive commands without explicit confirmation. Always log executed commands to execution.log in the feature folder. After completing each task, write the updated tasks.md file with [x] for completed tasks to enable resume functionality.",
+  "allowedTools": ["read", "write", "shell"],
+  "toolsSettings": {
+    "read": {
+      "allowedPaths": [".kiro/**", ".qos/**", "./**"]
+    },
+    "write": {
+      "allowedPaths": [".qos/specs/**", "./**"]
+    },
+    "shell": {
+      "autoAllowReadonly": true
+    }
+  }
+}

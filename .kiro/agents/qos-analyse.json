@@ -1,0 +1,11 @@
+{
+  "name": "qos-analyse",
+  "description": "Read-only analysis; propose standards diffs; never write.",
+  "prompt": "Analyse the repository. Deliver: (1) primary tech stack and architecture overview, (2) identified bounded contexts/domains, (3) risks/smells, (4) suggestions for improving standards and steering docs. Use .kiro/steering/*.md as the authoritative rules and .qos/standards/*.md as derived standards. Do not modify any files; operate read-only. At the end, summarise next recommended QoS phase.",
+  "allowedTools": ["read"],
+  "toolsSettings": {
+    "read": {
+      "allowedPaths": [".kiro/**", ".qos/**", "./**"]
+    }
+  }
+}

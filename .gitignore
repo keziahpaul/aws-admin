@@ -1,0 +1,20 @@
+.venv
+.vscode
+.DS_Store
+*__pycache__*
+.terragrunt*
+terraform/infrastructure/dms-full-cdc/import.sh
+.terraform.lock.hcl
+# kspec local state (don't commit - personal working state)
+.kiro/.current
+.kiro/CONTEXT.md
+
+# DO commit these for team collaboration:
+# .kiro/config.json - project preferences
+# .kiro/specs/ - specifications, tasks, memory
+# .kiro/steering/ - product, tech, testing guidelines
+# .kiro/agents/ - agent configurations
+# .kiro/mcp.json.template - MCP template (no secrets)
+workspace.code-workspace
+terraform.tfstate
+terraform.tfstate.backup

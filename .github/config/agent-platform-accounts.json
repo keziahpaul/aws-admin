@@ -1,0 +1,12 @@
+{
+  "datanp": {
+    "account_id": "042775015153",
+    "runner_type": "non-prod",
+    "environments": ["dev", "tst"]
+  },
+  "dataprd": {
+    "account_id": "725563543552",
+    "runner_type": "prod",
+    "environments": ["pst", "prd"]
+  }
+}

@@ -1,0 +1,83 @@
+name: Reusable Data Ingestion S3 Deployment
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        type: string
+        required: true
+      runner-type:
+        description: 'Runner type (non-prod or prod)'
+        required: true
+        type: string
+      aws-account:
+        description: 'AWS Account ID'
+        required: true
+        type: string
+      terragrunt-path:
+        description: 'Path to Terragrunt configuration'
+        type: string
+        required: true
+      no-execute-changeset:
+        description: 'Do NOT Execute (dry run mode)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-s3:
+    name: Deploy S3 Infrastructure
+    runs-on: ['${{ inputs.runner-type }}', 'deploy']
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.aws-account }}:role/GitHubRunnerPEXAOneDataRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: 🏗️ Terragrunt Init
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: terragrunt init
+
+      - name: ✅ Terragrunt Validate
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: terragrunt validate
+
+      - name: 📋 Terragrunt Plan
+        id: plan
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: |
+          set +e
+          terragrunt plan -detailed-exitcode -out=tfplan
+          PLAN_EXIT_CODE=$?
+          echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          if [[ $PLAN_EXIT_CODE -eq 1 ]]; then exit 1; fi
+
+      - name: 🚀 Terragrunt Apply
+        if: steps.plan.outputs.exitcode == '2' && !inputs.no-execute-changeset
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: terragrunt apply tfplan
+
+      - name: 🧹 Cleanup
+        if: always()
+        shell: bash
+        run: find ${{ inputs.terragrunt-path }} -name ".terragrunt-cache" -type d -exec rm -rf {} + 2>/dev/null || true

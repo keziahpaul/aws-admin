@@ -1,0 +1,9 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      time: "09:30"
+      timezone: "Australia/Melbourne"
+    target-branch: "develop"

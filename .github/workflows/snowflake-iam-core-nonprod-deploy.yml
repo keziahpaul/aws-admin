@@ -1,0 +1,76 @@
+name: Deploy-Snowflake-IAM-Role [Core-NP]
+
+on:
+  workflow_dispatch:
+
+jobs:
+  corenp-dev-onedata-snowflake-egress-role-deploy:
+    uses: ./.github/workflows/reusable-snowflake-iam-deploy.yml
+    with:
+      ApiS3BucketName: "pexa-dev-coreegress-int-store"
+      ApiS3BucketKMSKeyID: "fd574f42-f456-4fa0-afff-5f32e18a42bf"
+      ExchangeS3BucketName: "onedata-exchange-526552200036-dev"
+      ArchiveS3BucketName: "prf02-exchange-archive-data"
+      SnowflakePrincipalArn: "arn:aws:iam::178848603211:user/ygr10000-s"
+      SnowflakeExternalId: "QN78122_SFCRole=dev_exchange_apilogs_s3_integration"
+      SnowflakeExternalIdExchange: "QN78122_SFCRole=dev_exchange_s3_integration"
+      RunnerEnvironment: "non-prod"
+      Environment: "dev"
+      AWSAccountNumber: "526552200036"
+      CFTemplate: "cloudformation/templates/snowflake-iam.yml"
+      CFStackName: "dev-onedata-snowflake-iam-role"
+      GitHubDeployRole: "GitHubRunnerOneDataDeployRole"
+
+  corenp-tst-onedata-snowflake-egress-role-deploy:
+    needs: [corenp-dev-onedata-snowflake-egress-role-deploy]
+    uses: ./.github/workflows/reusable-snowflake-iam-deploy.yml
+    with:
+      ApiS3BucketName: "pexa-tst-coreegress-s02-store"
+      ApiS3BucketKMSKeyID: "b123e869-2e65-4b7a-97b4-e5800b753c1b"
+      ExchangeS3BucketName: "onedata-exchange-526552200036-tst"
+      ArchiveS3BucketName: "prf02-exchange-archive-data"
+      SnowflakePrincipalArn: "arn:aws:iam::178848603211:user/ygr10000-s"
+      SnowflakeExternalId: "QN78122_SFCRole=dev_exchange_apilogs_s3_integration"
+      SnowflakeExternalIdExchange: "QN78122_SFCRole=dev_exchange_s3_integration"
+      RunnerEnvironment: "non-prod"
+      Environment: "tst"
+      AWSAccountNumber: "526552200036"
+      CFTemplate: "cloudformation/templates/snowflake-iam.yml"
+      CFStackName: "tst-onedata-snowflake-iam-role"
+      GitHubDeployRole: "GitHubRunnerOneDataDeployRole"
+
+  corenp-prf02-onedata-snowflake-egress-role-deploy:
+    needs: [corenp-tst-onedata-snowflake-egress-role-deploy]
+    uses: ./.github/workflows/reusable-snowflake-iam-deploy.yml
+    with:
+      ApiS3BucketName: "pexa-prf02-coreegress-store"
+      ApiS3BucketKMSKeyID: "6ec43a11-9a8f-4f0b-a3ad-b966b00437b4"
+      ExchangeS3BucketName: "onedata-exchange-526552200036-prf02"
+      ArchiveS3BucketName: "prf02-exchange-archive-data"
+      SnowflakePrincipalArn: "arn:aws:iam::178848603211:user/ygr10000-s"
+      SnowflakeExternalId: "QN78122_SFCRole=prf02_exchange_apilogs_s3_integration"
+      SnowflakeExternalIdExchange: "QN78122_SFCRole=prf02_exchange_s3_integration"
+      RunnerEnvironment: "non-prod"
+      Environment: "prf02"
+      AWSAccountNumber: "526552200036"
+      CFTemplate: "cloudformation/templates/snowflake-iam.yml"
+      CFStackName: "prf02-onedata-snowflake-iam-role"
+      GitHubDeployRole: "GitHubRunnerOneDataDeployRole"
+  
+  corenp-pst-onedata-snowflake-egress-role-deploy:
+    needs: [corenp-prf02-onedata-snowflake-egress-role-deploy]
+    uses: ./.github/workflows/reusable-snowflake-iam-deploy.yml
+    with:
+      ApiS3BucketName: "pexa-pst-coreegress-store"
+      ApiS3BucketKMSKeyID: "b37f8cd5-82be-4e24-bb7a-a87b8327f710"
+      ExchangeS3BucketName: "onedata-exchange-526552200036-pst"
+      ArchiveS3BucketName: "prf02-exchange-archive-data"
+      SnowflakePrincipalArn: "arn:aws:iam::872897688295:user/c9ii0000-s"
+      SnowflakeExternalId: "ZZ82647_SFCRole=pst_exchange_apilogs_s3_integration"
+      SnowflakeExternalIdExchange: "ZZ82647_SFCRole=pst_exchange_s3_integration"
+      RunnerEnvironment: "non-prod"
+      Environment: "pst"
+      AWSAccountNumber: "526552200036"
+      CFTemplate: "cloudformation/templates/snowflake-iam.yml"
+      CFStackName: "pst-onedata-snowflake-iam-role"
+      GitHubDeployRole: "GitHubRunnerOneDataDeployRole"

@@ -1,0 +1,14 @@
+{
+  "name": "qos-apply-standards",
+  "description": "Apply or propose changes to .qos/standards based on steering docs and repo reality.",
+  "prompt": "Goal: Align .qos/standards with .kiro/steering and actual repo state. Steps: (1) Read .kiro/steering/*.md and .qos/standards/*.md, (2) Propose specific edits to bring standards into compliance with steering while reflecting reality, (3) When asked, write updated standards markdown files under .qos/standards. Be explicit about any deviations or approved exceptions. Treat .kiro/steering as authoritative.",
+  "allowedTools": ["read", "write"],
+  "toolsSettings": {
+    "read": {
+      "allowedPaths": [".kiro/**", ".qos/**", "./**"]
+    },
+    "write": {
+      "allowedPaths": [".qos/standards/**"]
+    }
+  }
+}

@@ -1,0 +1,182 @@
+name: Salesforce-Connector-Deployment - must run after Deploy-onedata-ingress-s3-resources
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/DD*
+      - develop
+    paths:
+      - 'cloudformation/parameters/resources-dev/onedata-salesforce-resources/connector-params.json'
+      - 'cloudformation/parameters/resources-tst/onedata-salesforce-resources/connector-params.json'
+      - 'cloudformation/templates/onedata-salesforce-resources/connector.yml'
+      - '.github/workflows/onedata-salesforce-resources-connector-deploy.yml'
+      
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cloudformation/parameters/resources-pst/onedata-salesforce-resources/connector-params.json'
+      - 'cloudformation/parameters/resources-prd/onedata-salesforce-resources/connector-params.json'
+      - 'cloudformation/templates/onedata-salesforce-resources/connector.yml'
+      - '.github/workflows/onedata-salesforce-resources/connector-deploy.yml'
+
+   
+
+# =========================================================
+# GitHub Permissions for the entire workflow
+permissions:
+  id-token: write
+  contents: read
+
+# =========================================================
+# Jobs
+jobs:
+  salesforce-connector-deploy-dev:
+    name: Dev-Deploy-AppFlow-Connector-Profile 
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: [non-prod, deploy]
+    steps:
+      # Checkout source code
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+
+      # Configure temporary AWS credentials to get deployment permissions 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::042775015153:role/GitHubRunnerSalesforceAppFlowRole
+          role-duration-seconds: 900
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      # Parse CloudFormation parameters from templated json file
+      - name: Parse Parameters
+        id: parse-parameters
+        uses: ./.github/actions/parse-parameters
+        with:
+          parameters: ./cloudformation/parameters/resources-dev/onedata-salesforce-resources/connector-params.json
+          data-string: '{ "stack_name_suffix": "readonly-dev" }'
+
+      # Deploy stack to CloudFormation
+      - name: Deploy CloudFormation Connector Stack
+        uses: ./.github/actions/deploy-stack
+        with:
+          stack-name: onedata-appflow-connector-profile-dev
+          template: cloudformation/templates/onedata-salesforce-resources/connector.yml
+          parameters: file:///${{ github.workspace }}/${{ steps.parse-parameters.outputs.output-file }}
+          no-execute-changeset: false
+  
+  salesforce-connector-deploy-tst:
+    name: TST-Deploy-AppFlow-Connector-Profile 
+    if: github.ref == 'refs/heads/develop' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: [non-prod, deploy]
+    steps:
+      # Checkout source code
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+
+      # Configure temporary AWS credentials to get deployment permissions 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::042775015153:role/GitHubRunnerSalesforceAppFlowRole
+          role-duration-seconds: 900
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      # Parse CloudFormation parameters from templated json file
+      - name: Parse Parameters
+        id: parse-parameters
+        uses: ./.github/actions/parse-parameters
+        with:
+          parameters: ./cloudformation/parameters/resources-tst/onedata-salesforce-resources/connector-params.json
+          data-string: '{ "stack_name_suffix": "readonly-tst" }'
+
+      # Deploy stack to CloudFormation
+      - name: Deploy CloudFormation Connector Stack
+        uses: ./.github/actions/deploy-stack
+        with:
+          stack-name: onedata-appflow-connector-profile-tst
+          template: cloudformation/templates/onedata-salesforce-resources/connector.yml
+          parameters: file:///${{ github.workspace }}/${{ steps.parse-parameters.outputs.output-file }}
+          no-execute-changeset: false
+  
+  salesforce-connector-deploy-pst:
+    name: PST-Deploy-AppFlow-Connector-Profile 
+    if: (startsWith(github.event.pull_request.head.ref, 'release/')) || (startsWith(github.ref,'refs/heads/release/') && github.event_name == 'workflow_dispatch')
+    runs-on: [prod, deploy]
+    environment: pst
+    steps:
+      # Checkout source code
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+
+      # Configure temporary AWS credentials to get deployment permissions 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::725563543552:role/GitHubRunnerSalesforceAppFlowRole
+          role-duration-seconds: 900
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      # Parse CloudFormation parameters from templated json file
+      - name: Parse Parameters
+        id: parse-parameters
+        uses: ./.github/actions/parse-parameters
+        with:
+          parameters: ./cloudformation/parameters/resources-pst/onedata-salesforce-resources/connector-params.json
+          data-string: '{ "stack_name_suffix": "readonly-pst" }'
+
+      # Deploy stack to CloudFormation
+      - name: Deploy CloudFormation Connector Stack
+        uses: ./.github/actions/deploy-stack
+        with:
+          stack-name: onedata-appflow-connector-profile-pst
+          template: cloudformation/templates/onedata-salesforce-resources/connector.yml
+          parameters: file:///${{ github.workspace }}/${{ steps.parse-parameters.outputs.output-file }}
+          no-execute-changeset: false
+
+
+  salesforce-connector-deploy-prd:
+    name: PRD-Deploy-AppFlow-Connector-Profile 
+    if: (always() && startsWith(github.event.pull_request.head.ref, 'release/') && needs.salesforce-connector-deploy-pst.result == 'success') || (always() && startsWith(github.ref, 'refs/heads/main') && github.event_name == 'workflow_dispatch' && needs.salesforce-connector-deploy-pst.result == 'skipped')
+    needs: [salesforce-connector-deploy-pst]
+    runs-on: [prod, deploy]
+    environment: prd
+    steps:
+      # Checkout source code
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+
+      # Configure temporary AWS credentials to get deployment permissions 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::725563543552:role/GitHubRunnerSalesforceAppFlowRole
+          role-duration-seconds: 900
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      # Parse CloudFormation parameters from templated json file
+      - name: Parse Parameters
+        id: parse-parameters
+        uses: ./.github/actions/parse-parameters
+        with:
+          parameters: ./cloudformation/parameters/resources-prd/onedata-salesforce-resources/connector-params.json
+          data-string: '{ "stack_name_suffix": "readonly-prd" }'
+
+      # Deploy stack to CloudFormation
+      - name: Deploy CloudFormation Connector Stack
+        uses: ./.github/actions/deploy-stack
+        with:
+          stack-name: onedata-appflow-connector-profile-prd
+          template: cloudformation/templates/onedata-salesforce-resources/connector.yml
+          parameters: file:///${{ github.workspace }}/${{ steps.parse-parameters.outputs.output-file }}
+          no-execute-changeset: false
+
+  

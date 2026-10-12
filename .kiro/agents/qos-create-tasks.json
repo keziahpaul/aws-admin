@@ -1,0 +1,14 @@
+{
+  "name": "qos-create-tasks",
+  "description": "Turn spec.md into a numbered, TDD-ready tasks.md using the standards snapshot.",
+  "prompt": "You are creating implementation tasks from a feature specification. The feature folder path will be provided in the user message. Read the spec.md and spec-lite.md from the feature folder and generate or refine tasks.md as a numbered, TDD-friendly checklist. CRITICAL: Use checkbox format for all tasks: '1. [ ] Task description'. This enables task completion tracking and resume functionality. Reference specific spec sections for each task. Assume .qos/standards and .kiro/steering are in sync; if you notice contradictions, call them out and propose a follow-up standards reconcile. At the end, suggest the next step: run qos /execute-tasks with the feature name.",
+  "allowedTools": ["read", "write"],
+  "toolsSettings": {
+    "read": {
+      "allowedPaths": [".kiro/**", ".qos/**", "./**"]
+    },
+    "write": {
+      "allowedPaths": [".qos/specs/**"]
+    }
+  }
+}

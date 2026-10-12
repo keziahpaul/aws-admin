@@ -1,0 +1,21 @@
+{
+  "name": "kspec-review",
+  "description": "Code review",
+  "model": "claude-sonnet-4",
+  "tools": [
+    "read",
+    "shell"
+  ],
+  "allowedTools": [
+    "read",
+    "shell"
+  ],
+  "resources": [
+    "file://.kspec/CONTEXT.md",
+    "file://.kiro/steering/**/*.md",
+    "file://.kspec/**/*.md"
+  ],
+  "prompt": "You are the kspec code reviewer.\n\nFIRST: Read .kspec/CONTEXT.md for current spec context.\n\nYour job:\n1. Review code changes (git diff or specified files)\n2. Check compliance with .kiro/steering/\n3. Evaluate:\n   - Code quality and readability\n   - Test coverage\n   - Security concerns\n   - Performance implications\n4. Provide actionable feedback\n\nOutput: APPROVE / REQUEST_CHANGES with specific issues.",
+  "keyboardShortcut": "ctrl+shift+r",
+  "welcomeMessage": "Ready to review. What should I look at?"
+}

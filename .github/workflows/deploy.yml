@@ -1,0 +1,68 @@
+name: Deploy-ETL-resources-for-Onedata
+on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'cloudformation/templates/resources.yml'
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+
+jobs:
+  one-data-aws-s3-for-vom:
+    name: Deployment
+    runs-on: [prod, deploy]
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      Account: ${{ steps.get-parameter.outputs.Account }}
+    steps:
+
+      - name: Checkout Source
+        uses: actions/checkout@v3
+
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+          parameter_path=""
+          if [[ ${{ env.parameter_env }} == 'develop' ]]; then
+            parameter_path="./cloudformation/parameters/non-prod/resources.properties"
+          elif [[ ${{ env.parameter_env }} == 'main' ]]; then
+            parameter_path="./cloudformation/parameters/prod/resources.properties"
+          fi
+          echo "Setting Vars"
+          Environment=`awk '/Environment/' $parameter_path | sed 's/Environment=//'`
+          Account=`awk '/Account/' $parameter_path | sed 's/Account=//'`
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "Account=$Account" >> $GITHUB_OUTPUT
+          echo "Account: $Account and Environment: $Environment "
+
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ steps.get-parameter.outputs.Account }}:role/GitHubRunnerPEXAOneDataRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Validate CloudFormation Template
+        run:  aws cloudformation validate-template --template-body file://cloudformation/templates/resources.yml --region ap-southeast-2
+
+      - name: Deploy Cloudformation Stack
+        uses: PEXA-AU/aws-cloudformation-github-deploy@2
+        with:
+          name: ${{ steps.get-parameter.outputs.Environment }}-${{ steps.get-parameter.outputs.Account }}-onedata-medallia-s3
+          template: cloudformation/templates/resources.yml
+          capabilities: 'CAPABILITY_AUTO_EXPAND'
+          no-fail-on-empty-changeset: '1'
+          tail-events: "1"
+          event-timezone: "Australia/Melbourne"
+          parameter-overrides: >-
+            Environment=${{ steps.get-parameter.outputs.Environment }},
+            Account=${{ steps.get-parameter.outputs.Account }}

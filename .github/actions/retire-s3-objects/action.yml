@@ -1,0 +1,52 @@
+name: Retire Lambda S3 zip objects
+description: Retire any old lambda zip and layer files in S3, except the current ones
+
+inputs:
+  s3_util_shared_bucket:
+    description: Shared bucket name for utility functions
+    required: true
+  CurrentLambda:
+    description: The current Lambda function S3 key to be ignored
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: retire
+      shell: bash
+      run: |
+        # Get the current commit SHA folder from the CurrentLambda path
+        CURRENT_SHA_FOLDER=$(echo '${{ inputs.CurrentLambda }}' | cut -d'/' -f2)
+        echo "Current SHA folder: $CURRENT_SHA_FOLDER"
+        
+        # Retire old lambda zip files
+        OLD_LAMBDAS=$(aws s3api list-objects-v2 --bucket ${{ inputs.s3_util_shared_bucket }} --prefix bespoke_report/ --query "Contents[?ends_with(Key, '/bespoke_report_extract_lambda.zip')]" 2>/dev/null | \
+          jq -r 'if . == null then empty else .[] | .Key end' 2>/dev/null | \
+          grep -v '${{ inputs.CurrentLambda }}' || true)
+        
+        if [ -n "$OLD_LAMBDAS" ]; then
+          echo "$OLD_LAMBDAS" | while read -r oldfile; do
+            if [ -n "$oldfile" ]; then
+              echo "Removing old lambda: $oldfile"
+              aws s3 rm "s3://${{ inputs.s3_util_shared_bucket }}/$oldfile"
+            fi
+          done
+        else
+          echo "No old lambda files to retire"
+        fi
+        
+        # Retire old layer zip files
+        OLD_LAYERS=$(aws s3api list-objects-v2 --bucket ${{ inputs.s3_util_shared_bucket }} --prefix bespoke_report/ --query "Contents[?ends_with(Key, '/pyzipper-layer.zip')]" 2>/dev/null | \
+          jq -r 'if . == null then empty else .[] | .Key end' 2>/dev/null | \
+          grep -v "${CURRENT_SHA_FOLDER}" || true)
+        
+        if [ -n "$OLD_LAYERS" ]; then
+          echo "$OLD_LAYERS" | while read -r oldfile; do
+            if [ -n "$oldfile" ]; then
+              echo "Removing old layer: $oldfile"
+              aws s3 rm "s3://${{ inputs.s3_util_shared_bucket }}/$oldfile"
+            fi
+          done
+        else
+          echo "No old layer files to retire"
+        fi

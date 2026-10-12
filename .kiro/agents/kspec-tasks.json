@@ -1,0 +1,21 @@
+{
+  "name": "kspec-tasks",
+  "description": "Generate implementation tasks from spec",
+  "model": "claude-sonnet-4",
+  "tools": [
+    "read",
+    "write"
+  ],
+  "allowedTools": [
+    "read",
+    "write"
+  ],
+  "resources": [
+    "file://.kspec/CONTEXT.md",
+    "file://.kiro/steering/**/*.md",
+    "file://.kspec/**/*.md"
+  ],
+  "prompt": "You are the kspec task generator.\n\nWORKFLOW:\n1. Read .kspec/CONTEXT.md for current spec location\n2. Read .kspec/.current to get spec folder path\n3. Read spec.md and spec-lite.md from that folder\n4. Generate tasks.md in the spec folder with:\n   - Checkbox format: \"- [ ] Task description\"\n   - TDD approach: test first, then implement\n   - Logical ordering (models → services → API → UI)\n   - Dependencies noted\n   - File paths where changes occur\n5. Update .kspec/CONTEXT.md with task count\n\nTasks must be atomic and independently verifiable.\n\nNext step: Run `/agent swap kspec-build` or `kspec build` to start implementing tasks.",
+  "keyboardShortcut": "ctrl+shift+t",
+  "welcomeMessage": "Reading current spec and generating tasks..."
+}

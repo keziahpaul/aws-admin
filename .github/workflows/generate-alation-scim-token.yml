@@ -1,0 +1,56 @@
+name: Generate Alation SCIM Token
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 10 * * 1'  # Weekly every Monday at 10:00AM
+      timezone: "Australia/Melbourne"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  SCIM_SECRET_NAME: 'onedata/Alation/SCIM_token'
+  SLACK_CHANNEL_ID: 'C0AR8DZMGQY'
+
+jobs:
+  generate-scim-token-prod:
+    name: Generate Alation SCIM Token (Prod)
+    runs-on: [non-prod, deploy]
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::725563543552:role/GitHubRunnerPEXAOneDataRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Check Python version
+        run: python3 --version
+
+      - name: Install dependencies
+        run: pip3 install -r scripts/requirements.txt
+
+      - name: Generate Alation SCIM Token
+        id: generate
+        run: python3 scripts/generate_alation_scim_token.py
+
+      - name: Notify Slack (success)
+        if: success() && steps.generate.outputs.token_generated == 'true'
+        run: |
+          python3 scripts/send_slack_message.py \
+            "${{ env.SLACK_CHANNEL_ID }}" \
+            "✅ Alation SCIM token has been regenerated and stored at AWS Secrets Manager path: \`${{ env.SCIM_SECRET_NAME }}\`"
+
+      - name: Notify Slack (failure)
+        if: failure() || steps.generate.outcome == 'failure'
+        run: |
+          python3 scripts/send_slack_message.py \
+            "${{ env.SLACK_CHANNEL_ID }}" \
+            "❌ Alation SCIM token generation failed. Please check the GitHub Actions logs for details."

@@ -1,0 +1,14 @@
+{
+  "name": "qos-harvest-memory",
+  "description": "Summarise decisions, glossary, and follow-ups into .qos/memory.",
+  "prompt": "Read relevant specs, tasks, and recent changes under .qos/specs, .qos/tasks, and the repo. Summarise: (1) key decisions, (2) glossary of terms, (3) follow-ups and risks. Write or update files under .qos/memory (e.g., decisions.md, glossary.md, follow-ups.md). Call out where steering docs (.kiro/steering) should be updated and propose concrete edits.",
+  "allowedTools": ["read", "write"],
+  "toolsSettings": {
+    "read": {
+      "allowedPaths": [".kiro/**", ".qos/**", "./**"]
+    },
+    "write": {
+      "allowedPaths": [".qos/memory/**"]
+    }
+  }
+}
