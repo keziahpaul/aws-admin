@@ -1,0 +1,206 @@
+name: Deploy-dms-task-set2
+on:
+  push:
+    branches:
+      - feature/DD-*
+      - feature/prf-*
+      - develop
+
+    paths:
+      - 'terraform/infrastructure/dms-task-set2/**'
+      - '.github/workflows/deploy-dms-task-set2.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/infrastructure/dms-task-set2/**'
+      - '.github/workflows/deploy-dms-task-set2.yml'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - tst
+          - prf
+          - pst
+          - prd
+
+permissions:
+  id-token: write
+  contents: read
+
+
+jobs:
+  deploy-dms-task-set2-dev:
+    name: deploy-dms-task-set2-dev
+    if: (startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    runs-on: [non-prod, deploy]
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Init
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/dev
+        run: terragrunt init
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/dev
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/dev
+        run: terragrunt apply -auto-approve
+
+  deploy-dms-task-set2-tst:
+    name: deploy-dms-task-set2-tst
+    if: (github.ref == 'refs/heads/develop' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'tst')
+    runs-on: [non-prod, deploy]
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Init
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/tst
+        run: terragrunt init
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/tst
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/tst
+        run: terragrunt apply -auto-approve
+
+  deploy-dms-task-set2-prf:
+    name: deploy-dms-task-set2-prf
+    if: (startsWith(github.ref ,'refs/heads/feature/prf') && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prf')
+    runs-on: [non-prod, deploy]
+    environment: prf
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Init
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/prf
+        run: terragrunt init
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/prf
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/prf
+        run: terragrunt apply -auto-approve
+
+  deploy-dms-task-set2-pst:
+    name: deploy-dms-task-set2-pst
+    if: (startsWith(github.event.pull_request.head.ref, 'develop')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'pst')
+    runs-on: [non-prod, deploy]
+    environment: pst
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Init
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/pst
+        run: terragrunt init
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/pst
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-task-set2/environments/corenp/pst
+        run: terragrunt apply -auto-approve
+
+  deploy-dms-task-set2-prd:
+    name: deploy-dms-task-set2-prd
+    if: (startsWith(github.event.pull_request.head.ref, 'release')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prd')
+    runs-on: [prod, deploy]
+    environment: prd
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::215597176832:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Init
+        working-directory: terraform/infrastructure/dms-task-set2/environments/coreprd/prd
+        run: terragrunt init
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-task-set2/environments/coreprd/prd
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-task-set2/environments/coreprd/prd
+        run: terragrunt apply -auto-approve

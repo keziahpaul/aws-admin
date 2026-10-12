@@ -1,0 +1,21 @@
+name: Deploy-SageMaker-IAM-Role [NonProd]
+
+on:
+  workflow_dispatch:
+
+jobs:
+  data-sci-dev-onedata-sagemaker-iam-role-deploy:
+    uses: ./.github/workflows/reusable-sagemaker-iam-deploy.yml
+    with:
+      SageMakerPrincipalArn: "arn:aws:iam::731842666869:role/sagemaker-studio-execution-role"
+      RunnerEnvironment: "non-prod"
+      AWSAccountNumber: "042775015153"
+      CFStackName: "onedata-sagemaker-iam-role-dev"
+
+  data-sci-stg-onedata-sagemaker-iam-role-deploy:
+    uses: ./.github/workflows/reusable-sagemaker-iam-deploy.yml
+    with:
+      SageMakerPrincipalArn: "arn:aws:iam::723124220550:role/sagemaker-studio-execution-role"
+      RunnerEnvironment: "non-prod"
+      AWSAccountNumber: "042775015153"
+      CFStackName: "onedata-sagemaker-iam-role-stg"

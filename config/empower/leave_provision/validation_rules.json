@@ -1,0 +1,13 @@
+{
+  "allowed_extensions": [".csv"],
+  "required_columns": ["As Of Date", "Type", "Code", "Employee", "Employee Name", "NC Amt", "C Hr/Amt"],
+  "column_types": [
+    {"name": "As Of Date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "Type", "type": "string"},
+    {"name": "Code", "type": "string"},
+    {"name": "Employee", "type": "string"},
+    {"name": "Employee Name", "type": "string"},
+    {"name": "NC Amt", "type": "number"},
+    {"name": "C Hr/Amt", "type": "number"}
+  ]
+}

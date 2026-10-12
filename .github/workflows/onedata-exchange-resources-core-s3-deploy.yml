@@ -1,0 +1,235 @@
+name: Deploy-onedata-exchange-resources-core-s3
+on:
+  push:
+    branches:
+      - feature/DD-*
+      - feature/prf-*
+      - develop
+
+    paths:
+      - 'cloudformation/parameters/resources-*/onedata-exchange-resources/onedata-exchange-resources-core-s3.properties'
+      - '.github/workflows/onedata-exchange-resources-core-s3-deploy.yml'
+      - 'cloudformation/templates/onedata-exchange-resources/onedata-exchange-resources-core-s3.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cloudformation/parameters/resources-*/onedata-exchange-resources/onedata-exchange-resources-core-s3.properties'
+      - '.github/workflows/onedata-exchange-resources-core-s3-deploy.yml'
+      - 'cloudformation/templates/onedata-exchange-resources/onedata-exchange-resources-core-s3.yml'
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+
+jobs:
+  deploy-onedata-exchange-resources-core-s3-dev:
+    name: deploy-onedata-exchange-resources-core-s3-dev
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='dev'
+          StackName='onedata-exchange-resources-core-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-exchange-resources/${StackName}.properties
+          GitHubDeploy_IAM_ROLE='GitHubRunnerOneDataDeployRole'
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+          echo "GitHubDeploy_IAM_ROLE=$GitHubDeploy_IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-exchange-s3-storage
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-exchange-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          GitHubDeploy_IAM_ROLE: ${{ steps.get-parameter.outputs.GitHubDeploy_IAM_ROLE }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-exchange-resources-data-s3-tst:
+    name: deploy-onedata-exchange-resources-core-s3-tst
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='tst'
+          StackName='onedata-exchange-resources-core-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-exchange-resources/${StackName}.properties
+          GitHubDeploy_IAM_ROLE='GitHubRunnerOneDataDeployRole'
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+          echo "GitHubDeploy_IAM_ROLE=$GitHubDeploy_IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-exchange-s3-storage
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-exchange-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          GitHubDeploy_IAM_ROLE: ${{ steps.get-parameter.outputs.GitHubDeploy_IAM_ROLE }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-exchange-resources-data-s3-prf:
+    name: deploy-onedata-exchange-resources-core-s3-prf
+    if: startsWith(github.ref ,'refs/heads/feature/prf') && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    environment: prf
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='prf'
+          StackName='onedata-exchange-resources-core-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-exchange-resources/${StackName}.properties
+          GitHubDeploy_IAM_ROLE='GitHubRunnerOneDataDeployRole'
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+          echo "GitHubDeploy_IAM_ROLE=$GitHubDeploy_IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-exchange-s3-storage
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-exchange-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          GitHubDeploy_IAM_ROLE: ${{ steps.get-parameter.outputs.GitHubDeploy_IAM_ROLE }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-exchange-resources-data-s3-pst:
+    name: deploy-onedata-exchange-resources-core-s3-pst
+    if: (startsWith(github.event.pull_request.head.ref, 'develop'))
+    runs-on: [non-prod, deploy]
+    environment: pst
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='pst'
+          StackName='onedata-exchange-resources-core-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-exchange-resources/${StackName}.properties
+          GitHubDeploy_IAM_ROLE='GitHubRunnerOneDataDeployRole'
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+          echo "GitHubDeploy_IAM_ROLE=$GitHubDeploy_IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-exchange-s3-storage
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-exchange-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          GitHubDeploy_IAM_ROLE: ${{ steps.get-parameter.outputs.GitHubDeploy_IAM_ROLE }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-exchange-resources-data-s3-prd:
+    name: deploy-onedata-exchange-resources-core-s3-prd
+    if: (startsWith(github.event.pull_request.head.ref, 'develop'))
+    runs-on: [prod, deploy]
+    needs: [deploy-onedata-exchange-resources-data-s3-pst]
+    environment: prd
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='prd'
+          StackName='onedata-exchange-resources-core-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/onedata-exchange-resources/${StackName}.properties
+          GitHubDeploy_IAM_ROLE='GitHubRunnerOneDataDeployRole'
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+          echo "GitHubDeploy_IAM_ROLE=$GitHubDeploy_IAM_ROLE" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-exchange-s3-storage
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-exchange-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          GitHubDeploy_IAM_ROLE: ${{ steps.get-parameter.outputs.GitHubDeploy_IAM_ROLE }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"

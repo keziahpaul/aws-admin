@@ -1,0 +1,32 @@
+{
+  "accounts": {
+    "digitalnp": {
+      "account_id": "570723136177",
+      "environments": ["dev", "tst", "pst"],
+      "runner_type": "non-prod",
+      "description": "Digital Non-Production Account"
+    },
+    "digitalprd": {
+      "account_id": "597924334156",
+      "environments": ["prd"],
+      "runner_type": "prod",
+      "description": "Digital Production Account"
+    }
+  },
+  "terragrunt": {
+    "base_path": "terraform/infrastructure/dms-cw-subscription-filters",
+    "root_config": "terraform/terragrunt.hcl",
+    "standardized_structure": true,
+    "folder_pattern": "environments/{account}/{environment}/"
+  },
+  "metadata": {
+    "version": "1.0",
+    "last_updated": "2025-12-03",
+    "purpose": "DMS CloudWatch Logs Subscription Filters to Splunk",
+    "deployment_tool": "terragrunt",
+    "structure": "Standardized - environments have folders per account",
+    "iam_role": "GitHubRunnerPEXAOneDataRole",
+    "approval_method": "GitHub Environment protection rules for 'prd' environment",
+    "path_construction": "Dynamic using base_path + folder_pattern"
+  }
+}

@@ -1,0 +1,172 @@
+name: Deploy-onedata-exchange-resources-core-DMS-full-cdc
+
+on:
+  push:
+    branches:
+      - feature/DD-*
+      - feature/prf-*
+      - develop
+    paths:
+      - 'terraform/infrastructure/dms-full-cdc/**'
+      - '.github/workflows/onedata-exchange-resources-core-DMS-full-cdc-terragrunt-deploy.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/infrastructure/dms-full-cdc/**'
+      - '.github/workflows/onedata-exchange-resources-core-DMS-full-cdc-terragrunt-deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-onedata-exchange-resources-core-DMS-full-cdc-dev:
+    name: deploy-onedata-exchange-resources-core-DMS-full-cdc-dev
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/dev
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/dev
+        run: terragrunt apply -auto-approve
+
+  deploy-onedata-exchange-resources-core-DMS-full-cdc-tst:
+    name: deploy-onedata-exchange-resources-core-DMS-full-cdc-tst
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/tst
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/tst
+        run: terragrunt apply -auto-approve
+
+  deploy-onedata-exchange-resources-core-DMS-full-cdc-prf:
+    name: deploy-onedata-exchange-resources-core-DMS-full-cdc-prf
+    if: startsWith(github.ref ,'refs/heads/feature/prf') && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    environment: prf
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/prf
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/prf
+        run: terragrunt apply -auto-approve
+
+  deploy-onedata-exchange-resources-core-DMS-full-cdc-pst:
+    name: deploy-onedata-exchange-resources-core-DMS-full-cdc-pst
+    if: (startsWith(github.event.pull_request.head.ref, 'develop'))
+    runs-on: [non-prod, deploy]
+    environment: pst
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::526552200036:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/pst
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/corenp/pst
+        run: terragrunt apply -auto-approve
+
+  deploy-onedata-exchange-resources-core-DMS-full-cdc-prd:
+    name: deploy-onedata-exchange-resources-core-DMS-full-cdc-prd
+    if: (startsWith(github.event.pull_request.head.ref, 'develop'))
+    runs-on: [prod, deploy]
+    needs: [deploy-onedata-exchange-resources-core-DMS-full-cdc-pst]
+    environment: prd
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::215597176832:role/GitHubRunnerOneDataDeployRole
+          role-duration-seconds: 1800
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: Terragrunt Plan
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/coreprd/prd
+        run: terragrunt plan
+
+      - name: Terragrunt Apply
+        working-directory: terraform/infrastructure/dms-full-cdc/environments/coreprd/prd
+        run: terragrunt apply -auto-approve

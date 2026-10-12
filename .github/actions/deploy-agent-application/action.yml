@@ -1,0 +1,489 @@
+name: 'Deploy Agent Application'
+description: 'Versions, builds and pushes agent images to ECR, deploys the Slack bot via a pinned ECS task definition, and rolls the AgentCore runtime to the new image.'
+
+# Composite action for deploying agent applications (AIRA, PIA, etc.).
+# Called by each agent repo. Caller supplies service name, environment, account,
+# and the runner (via runs-on in the caller job).
+#
+# Caller responsibilities (before invoking this action):
+#   - Check out the app source at the repository root WITH fetch-depth: 0
+#     (full history + tags are required by apim-version-system).
+#   - Provide a version.txt at the app repo root.
+#   - Reference the action by its remote path, e.g.:
+#       uses: PEXA-AU/pexa-one-data-aws-admin/.github/actions/deploy-agent-application@<ref>
+# The action runs docker build against the current working directory, so the
+# app source must be the checkout at the workspace root.
+
+inputs:
+  service-name:
+    description: 'Bare agent key (e.g., aira, pia); do not include the -agent suffix'
+    required: true
+  environment:
+    description: 'Target environment (dev, tst, pst, prd)'
+    required: true
+  aws-account:
+    description: 'AWS account id'
+    required: true
+  aws-region:
+    description: 'AWS region'
+    required: false
+    default: 'ap-southeast-2'
+  deploy-role-name:
+    description: 'IAM role name to assume in the target account'
+    required: false
+    default: 'GitHubRunnerAgentPlatformDeploymentRole'
+  role-duration:
+    description: 'IAM role session duration in seconds'
+    required: false
+    default: '1800'
+  agent-image-path:
+    description: 'Path to agent runtime Dockerfile. Empty to skip the runtime image + AgentCore update.'
+    required: false
+    default: 'agent/Dockerfile'
+  bot-image-path:
+    description: 'Path to slack bot Dockerfile. Empty to skip the bot image + ECS deploy.'
+    required: false
+    default: 'slack_bot/Dockerfile'
+  version-file:
+    description: 'Path to the version file used by apim-version-system'
+    required: false
+    default: 'version.txt'
+
+outputs:
+  version:
+    description: 'Version computed for this deploy'
+    value: ${{ steps.version.outputs.version }}
+  image-tag:
+    description: 'Image tag deployed (versioned)'
+    value: ${{ steps.tag.outputs.image-tag }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Deployment Information
+      shell: bash
+      run: |
+        {
+          echo "## Agent Application Deployment"
+          echo ""
+          echo "| Parameter | Value |"
+          echo "|-----------|-------|"
+          echo "| **Service** | ${{ inputs.service-name }} |"
+          echo "| **Environment** | ${{ inputs.environment }} |"
+          echo "| **AWS Account** | ${{ inputs.aws-account }} |"
+          echo "| **Agent Dockerfile** | ${{ inputs.agent-image-path }} |"
+          echo "| **Bot Dockerfile** | ${{ inputs.bot-image-path }} |"
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Derive Resource Names
+      id: resources
+      shell: bash
+      run: |
+        set -euo pipefail
+        ENV="${{ inputs.environment }}"
+        SERVICE="${{ inputs.service-name }}"
+
+        if [[ "$SERVICE" == *-agent ]]; then
+          echo "::error::service-name must be the bare agent key (e.g. 'aira'), not '$SERVICE'."
+          exit 1
+        fi
+
+        # ECR and ECS names mirror name_prefix in the Terraform agent-runtime
+        # and ecs-service modules. AgentCore names additionally replace hyphens
+        # with underscores and truncate the base to 48 characters.
+        RUNTIME_REPO="${ENV}-${SERVICE}-agent-agent-runtime"
+        BOT_REPO="${ENV}-${SERVICE}-agent-slack-bot"
+        ECS_CLUSTER="${ENV}-${SERVICE}-agent-slack-bot"
+        ECS_SERVICE="${ENV}-${SERVICE}-agent-slack-bot"
+        RUNTIME_BASE="${ENV//-/_}_${SERVICE//-/_}"
+        RUNTIME_NAME="${RUNTIME_BASE:0:48}_runtime"
+
+        {
+          echo "runtime-repo=$RUNTIME_REPO"
+          echo "bot-repo=$BOT_REPO"
+          echo "ecs-cluster=$ECS_CLUSTER"
+          echo "ecs-service=$ECS_SERVICE"
+          echo "runtime-name=$RUNTIME_NAME"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "| **Runtime ECR** | $RUNTIME_REPO |"
+          echo "| **Bot ECR** | $BOT_REPO |"
+          echo "| **ECS Cluster** | $ECS_CLUSTER |"
+          echo "| **AgentCore Runtime** | $RUNTIME_NAME |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Validate Version File
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION_FILE="${{ inputs.version-file }}"
+
+        if [[ ! -f "$VERSION_FILE" ]]; then
+          echo "::error::Version file '$VERSION_FILE' was not found. Add it to the app repository and check out with fetch-depth: 0."
+          exit 1
+        fi
+        if [[ ! -r "$VERSION_FILE" ]]; then
+          echo "::error::Version file '$VERSION_FILE' is not readable."
+          exit 1
+        fi
+
+        VERSION_CONTENT="$(<"$VERSION_FILE")"
+        if [[ ! "$VERSION_CONTENT" =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
+          echo "::error::Version file '$VERSION_FILE' must contain a valid major, major.minor, or major.minor.patch version without leading zeroes."
+          exit 1
+        fi
+        echo "Using version file: $VERSION_FILE ($VERSION_CONTENT)"
+
+    - name: Validate Branch Permissions
+      id: branch-check
+      shell: bash
+      run: |
+        set -euo pipefail
+        ENVIRONMENT="${{ inputs.environment }}"
+        BRANCH_REF="${{ github.ref }}"
+        ALLOWED=false
+
+        {
+          echo "## Branch Permission Validation"
+          echo ""
+          echo "| Parameter | Value |"
+          echo "|-----------|-------|"
+          echo "| **Environment** | $ENVIRONMENT |"
+          echo "| **Branch** | $BRANCH_REF |"
+          echo ""
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        case $ENVIRONMENT in
+          "dev")
+            # Dev is a non-prod sandbox — allow deploys from any branch so
+            # callers can promote from main (dev-then-prd pipelines) or test
+            # feature branches. Higher environments remain branch-gated below.
+            ALLOWED=true
+            echo "| **Status** | Allowed (any branch) |" >> "$GITHUB_STEP_SUMMARY"
+            ;;
+          "tst")
+            if [[ $BRANCH_REF == "refs/heads/develop" ]]; then
+              ALLOWED=true
+              echo "| **Status** | Allowed |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| **Status** | Not Allowed |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| **Allowed Branches** | develop |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            ;;
+          "pst"|"prd")
+            if [[ $BRANCH_REF == "refs/heads/main" ]] || \
+               [[ $BRANCH_REF == refs/heads/release/* ]]; then
+              ALLOWED=true
+              echo "| **Status** | Allowed |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| **Status** | Not Allowed |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| **Allowed Branches** | main, release/* |" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            ;;
+          *)
+            echo "| **Status** | Unknown Environment |" >> "$GITHUB_STEP_SUMMARY"
+            ;;
+        esac
+
+        if [[ $ALLOWED != "true" ]]; then
+          echo "Branch $BRANCH_REF is not allowed to deploy to $ENVIRONMENT environment"
+          exit 1
+        fi
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::${{ inputs.aws-account }}:role/${{ inputs.deploy-role-name }}
+        role-duration-seconds: ${{ inputs.role-duration }}
+        role-skip-session-tagging: true
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to Amazon ECR
+      id: ecr-login
+      uses: aws-actions/amazon-ecr-login@v2
+
+    # Compute the next semantic version from git tags + version.txt. Uses a
+    # per-agent PREFIX so each agent (pia, aira, ...) versions independently
+    # and ECR tags never collide.
+    - name: Generate Version
+      id: version
+      uses: PEXA-AU/apim-version-system@v3
+      with:
+        VERSION_FILE: ${{ inputs.version-file }}
+        PREFIX: ${{ inputs.service-name }}
+
+    # Determine the release channel + image tag scheme:
+    #   - release branches (main / release/*) -> "<version>"
+    #   - all other branches                  -> "snapshot-<version>-<sha>"
+    # The "snapshot-" prefix is what the ECR lifecycle policy targets for the
+    # short expiry, while release tags fall under keep-last-N for rollback.
+    - name: Compute Image Tag
+      id: tag
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION='${{ steps.version.outputs.version }}'
+        SHORT_SHA="$(echo '${{ github.sha }}' | cut -b -7)"
+        BRANCH_REF='${{ github.ref }}'
+        if [[ "$BRANCH_REF" == "refs/heads/main" ]] || [[ "$BRANCH_REF" == refs/heads/release/* ]]; then
+          IMAGE_TAG="${VERSION}"
+          CHANNEL="release"
+        else
+          IMAGE_TAG="snapshot-${VERSION}-${SHORT_SHA}"
+          CHANNEL="snapshot"
+        fi
+        echo "image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+        {
+          echo "| **Version** | ${VERSION} |"
+          echo "| **Image Tag** | ${IMAGE_TAG} |"
+          echo "| **Channel** | ${CHANNEL} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Set Up ARM64 Emulation
+      if: inputs.agent-image-path != ''
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
+
+    - name: Set Up Docker Buildx
+      if: inputs.agent-image-path != ''
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and Push Agent Runtime Image
+      if: inputs.agent-image-path != ''
+      shell: bash
+      env:
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.resources.outputs.runtime-repo }}
+        IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+      run: |
+        set -euo pipefail
+        # Push the versioned tag (used by the AgentCore runtime update) and
+        # :latest (bootstrap default referenced by terraform on first apply).
+        # Bedrock AgentCore container runtimes require ARM64 images.
+        docker buildx build --platform linux/arm64 \
+                            --push \
+                            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+                            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+                            --build-arg BUILD_VERSION="$IMAGE_TAG" \
+                            -f "${{ inputs.agent-image-path }}" .
+
+        echo "Pushed agent runtime: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Build and Push Slack Bot Image
+      if: inputs.bot-image-path != ''
+      shell: bash
+      env:
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.resources.outputs.bot-repo }}
+        IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+      run: |
+        set -euo pipefail
+        docker build --platform linux/amd64 \
+                     -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+                     -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
+                     --build-arg BUILD_VERSION="$IMAGE_TAG" \
+                     -f "${{ inputs.bot-image-path }}" .
+
+        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        docker push "$ECR_REGISTRY/$ECR_REPOSITORY:latest"
+
+        echo "Pushed slack bot: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"
+
+    # Roll the AgentCore runtime to the new image. update-agent-runtime creates
+    # a NEW immutable runtime version; the DEFAULT endpoint (which the Slack bot
+    # invokes via the bare runtime ARN) auto-advances to it. Existing sessions
+    # drain on their old version. Terraform ignores agent_runtime_artifact, so
+    # this imperative image roll is not reverted on the next apply.
+    # AgentCore rollback is separate from ECS rollback: update the runtime to a
+    # retained earlier ECR tag while resupplying the current runtime settings.
+    - name: Update AgentCore Runtime
+      if: inputs.agent-image-path != ''
+      shell: bash
+      env:
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.resources.outputs.runtime-repo }}
+        IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+        RUNTIME_NAME: ${{ steps.resources.outputs.runtime-name }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        NEW_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+        # Resolve the runtime ID by name.
+        RUNTIME_ID=$(aws bedrock-agentcore-control list-agent-runtimes \
+          --region "$AWS_REGION" \
+          --query "agentRuntimes[?agentRuntimeName=='${RUNTIME_NAME}'].agentRuntimeId | [0]" \
+          --output text)
+
+        if [[ -z "$RUNTIME_ID" || "$RUNTIME_ID" == "None" ]]; then
+          echo "AgentCore runtime '$RUNTIME_NAME' not found. It must be created by terraform before first deploy."
+          exit 1
+        fi
+        echo "Runtime: $RUNTIME_NAME ($RUNTIME_ID)"
+
+        # Read the current mutable configuration so the update changes only the
+        # image. update-agent-runtime replaces values supplied in its request.
+        aws bedrock-agentcore-control get-agent-runtime \
+          --agent-runtime-id "$RUNTIME_ID" \
+          --region "$AWS_REGION" \
+          --output json > runtime.json
+
+        # Fail fast if the runtime response is missing the role/network config
+        # the update must carry forward (a malformed response would otherwise
+        # produce an invalid update request).
+        jq -e '.roleArn | type == "string" and test("^arn:aws(-[^:]+)?:iam::[0-9]{12}:role/.+$")' runtime.json >/dev/null || {
+          echo "::error::Runtime '$RUNTIME_NAME' returned a missing or invalid roleArn."
+          exit 1
+        }
+        jq -e '
+          .networkConfiguration
+          | .networkMode == "PUBLIC"
+            or (
+              .networkMode == "VPC"
+              and (.networkModeConfig.subnets | type == "array" and length > 0)
+              and (.networkModeConfig.securityGroups | type == "array" and length > 0)
+            )
+        ' runtime.json >/dev/null || {
+          echo "::error::Runtime '$RUNTIME_NAME' returned an invalid networkConfiguration."
+          exit 1
+        }
+
+        # Carry forward every mutable field the current runtime already has that
+        # the installed CLI's update model supports (role, network, protocol,
+        # env vars, ...), changing only the image. Intersecting with the update
+        # skeleton drops response-only / not-yet-supported fields; clientToken
+        # is dropped so the CLI generates a fresh one.
+        aws bedrock-agentcore-control update-agent-runtime \
+          --generate-cli-skeleton input > runtime-update-skeleton.json
+        jq --slurpfile skeleton runtime-update-skeleton.json \
+          --arg runtime_id "$RUNTIME_ID" --arg image "$NEW_IMAGE" '
+          ($skeleton[0] | keys) as $supported_fields
+          | with_entries(
+              select(.value != null)
+              | select(.key as $key | $supported_fields | index($key))
+            )
+          | del(.clientToken)
+          | .agentRuntimeId = $runtime_id
+          | .agentRuntimeArtifact = {containerConfiguration: {containerUri: $image}}
+        ' runtime.json > runtime-update.json
+
+        echo "Updating runtime to $NEW_IMAGE"
+        NEW_VERSION=$(aws bedrock-agentcore-control update-agent-runtime \
+          --cli-input-json file://runtime-update.json \
+          --region "$AWS_REGION" \
+          --query 'agentRuntimeVersion' --output text)
+
+        echo "New runtime version: $NEW_VERSION"
+
+        # Poll until the runtime reports READY (or fails).
+        for attempt in $(seq 1 30); do
+          STATUS=$(aws bedrock-agentcore-control get-agent-runtime \
+            --agent-runtime-id "$RUNTIME_ID" \
+            --region "$AWS_REGION" \
+            --query 'status' --output text)
+          echo "Attempt $attempt: status=$STATUS"
+          case "$STATUS" in
+            READY) break ;;
+            CREATE_FAILED|UPDATE_FAILED|DELETE_FAILED)
+              echo "AgentCore runtime entered failure state: $STATUS"
+              exit 1
+              ;;
+          esac
+          if [[ "$attempt" == "30" ]]; then
+            echo "Timed out waiting for AgentCore runtime to become READY"
+            exit 1
+          fi
+          sleep 10
+        done
+
+        {
+          echo "| **AgentCore Runtime** | Updated to \`$NEW_IMAGE\` |"
+          echo "| **New Runtime Version** | $NEW_VERSION |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    # Register a NEW task definition revision pinned to the versioned image,
+    # then point the service at that revision. Each deploy is therefore an
+    # immutable, addressable revision. ECS rollback is independent of AgentCore:
+    # update the service back to a prior task-definition revision.
+    - name: Register Task Definition & Deploy
+      if: inputs.bot-image-path != ''
+      shell: bash
+      env:
+        ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.resources.outputs.bot-repo }}
+        IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+        ECS_CLUSTER: ${{ steps.resources.outputs.ecs-cluster }}
+        ECS_SERVICE: ${{ steps.resources.outputs.ecs-service }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        NEW_IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        echo "Pinning $ECS_SERVICE to $NEW_IMAGE"
+
+        CURRENT_TD_ARN=$(aws ecs describe-services \
+          --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+          --region "$AWS_REGION" \
+          --query 'services[0].taskDefinition' --output text)
+        echo "Current task definition: $CURRENT_TD_ARN"
+
+        aws ecs describe-task-definition \
+          --task-definition "$CURRENT_TD_ARN" \
+          --region "$AWS_REGION" \
+          --query 'taskDefinition' --output json > td.json
+
+        jq --arg IMG "$NEW_IMAGE" '
+          .containerDefinitions |= (map(if .name == "slack-bot" then .image = $IMG else . end))
+          | {family, taskRoleArn, executionRoleArn, networkMode, containerDefinitions,
+             requiresCompatibilities, cpu, memory, volumes, placementConstraints,
+             runtimePlatform, ephemeralStorage}
+          | with_entries(select(.value != null))
+        ' td.json > new-td.json
+
+        NEW_TD_ARN=$(aws ecs register-task-definition \
+          --cli-input-json file://new-td.json \
+          --region "$AWS_REGION" \
+          --query 'taskDefinition.taskDefinitionArn' --output text)
+        echo "Registered new task definition: $NEW_TD_ARN"
+
+        aws ecs update-service \
+          --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+          --task-definition "$NEW_TD_ARN" \
+          --region "$AWS_REGION" >/dev/null
+
+        {
+          echo "| **New Task Def** | \`$NEW_TD_ARN\` |"
+          echo "| **Previous Task Def** | \`$CURRENT_TD_ARN\` |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Wait for ECS Deployment
+      if: inputs.bot-image-path != ''
+      shell: bash
+      env:
+        ECS_CLUSTER: ${{ steps.resources.outputs.ecs-cluster }}
+        ECS_SERVICE: ${{ steps.resources.outputs.ecs-service }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        echo "Waiting for ECS service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster "$ECS_CLUSTER" \
+          --services "$ECS_SERVICE" \
+          --region "$AWS_REGION"
+        echo "ECS service is stable" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Deployment Summary
+      if: always()
+      shell: bash
+      run: |
+        {
+          echo ""
+          echo "## Deployment Complete"
+          echo ""
+          echo "**Version:** \`${{ steps.version.outputs.version }}\`"
+          echo "**Image Tag:** \`${{ steps.tag.outputs.image-tag }}\`"
+          echo "**Commit:** \`${{ github.sha }}\`"
+          echo "**Triggered by:** ${{ github.actor }}"
+        } >> "$GITHUB_STEP_SUMMARY"

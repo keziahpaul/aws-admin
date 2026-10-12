@@ -1,0 +1,65 @@
+name: Deploy-Glue-IAM-Role
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/DD-*
+      - develop
+    paths:
+      - '.github/workflows/glue-iam-deploy.yml'
+      - '.github/workflows/reusable-glue-iam-deploy.yml'
+      - 'cloudformation/templates/glue_iam.yml'
+      
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/glue-iam-deploy.yml'
+      - '.github/workflows/reusable-glue-iam-deploy.yml'
+      - 'cloudformation/templates/glue_iam.yml'
+      
+
+jobs:
+  data-np-dev-onedata-glue-iam-role-deploy:
+    name: DEV Deploy OneData Glue
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push' 
+    uses: ./.github/workflows/reusable-glue-iam-deploy.yml
+    with:
+      GluePrincipalArn: "arn:aws:iam::481949735920:role/glue-etl-pb-avm"
+      RunnerEnvironment: "non-prod"
+      AWSAccountNumber: "042775015153"
+      CFStackName: "onedata-glue-iam-role-dev"
+
+  data-np-stg-onedata-glue-iam-role-deploy:
+    name: STG Deploy OneData Glue
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push' 
+    uses: ./.github/workflows/reusable-glue-iam-deploy.yml
+    with:
+      GluePrincipalArn: "arn:aws:iam::391021066340:role/glue-etl-pb-avm"
+      RunnerEnvironment: "non-prod"
+      AWSAccountNumber: "042775015153"
+      CFStackName: "onedata-glue-iam-role-tst"
+
+  data-np-pst-onedata-glue-iam-role-deploy:
+    name: PST Deploy OneData Glue
+    if: (startsWith(github.event.pull_request.head.ref, 'release'))
+    uses: ./.github/workflows/reusable-glue-iam-deploy.yml
+    with:
+      GluePrincipalArn: "arn:aws:iam::793120253878:role/glue-etl-pb-avm"
+      RunnerEnvironment: "non-prod"
+      AWSAccountNumber: "725563543552"
+      CFStackName: "onedata-glue-iam-role-pst"
+      Environment: pst
+
+  data-prd-onedata-glue-iam-role-deploy:
+    name: PROD Deploy OneData Glue
+    if: (startsWith(github.event.pull_request.head.ref, 'release') )
+    needs: [data-np-pst-onedata-glue-iam-role-deploy]
+    uses: ./.github/workflows/reusable-glue-iam-deploy.yml
+    with:
+      GluePrincipalArn: "arn:aws:iam::247227199914:role/glue-etl-pb-avm"
+      RunnerEnvironment: "prod"
+      AWSAccountNumber: "725563543552"
+      CFStackName: "onedata-glue-iam-role-prd"
+      Environment: prd

@@ -1,0 +1,15 @@
+{
+  "allowed_extensions": [".csv"],
+  "required_columns": ["As Of Date", "Employee", "Employee Name", "Trans Date", "Type", "Code", "Fm Date", "To Date", "Hours"],
+  "column_types": [
+    {"name": "As Of Date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "Employee", "type": "string"},
+    {"name": "Employee Name", "type": "string"},
+    {"name": "Trans Date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "Type", "type": "string"},
+    {"name": "Code", "type": "string"},
+    {"name": "Fm Date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "To Date", "type": "date", "format": "%Y-%m-%d"},
+    {"name": "Hours", "type": "number"}
+  ]
+}

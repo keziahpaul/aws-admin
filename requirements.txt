@@ -1,6 +1,0 @@
-boto3==1.43.36
-cryptography==50.0.2
-requests==2.34.2
-pytest==8.4.2
-snowflake-connector-python==4.8.0
-pyopenssl==26.4.0

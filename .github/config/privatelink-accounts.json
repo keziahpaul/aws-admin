@@ -1,0 +1,54 @@
+{
+  "accounts": {
+    "corenp": {
+      "account_id": "526552200036",
+      "environments": ["dev", "tst", "prf"],
+      "runner_type": "non-prod",
+      "description": "Core Non-Production Account"
+    },
+    "coreprd": {
+      "account_id": "215597176832",
+      "environments": ["prd"],
+      "runner_type": "prod",
+      "description": "Core Production Account"
+    },
+    "digitalnp": {
+      "account_id": "570723136177",
+      "environments": ["dev", "tst", "pst"],
+      "runner_type": "non-prod",
+      "description": "Digital Non-Production Account"
+    },
+    "digitalprd": {
+      "account_id": "597924334156",
+      "environments": ["prd"],
+      "runner_type": "prod",
+      "description": "Digital Production Account"
+    },
+    "datanp": {
+      "account_id": "042775015153",
+      "environments": ["dev", "pst"],
+      "runner_type": "non-prod",
+      "description": "Data Non-Production Account"
+    },
+    "management": {
+      "account_id": "004761221582",
+      "environments": ["prd"],
+      "runner_type": "prod",
+      "description": "Management Account"
+    }
+  },
+  "terragrunt": {
+    "base_path": "terraform/infrastructure/privatelink",
+    "root_config": "terraform/terragrunt.hcl",
+    "standardized_structure": true,
+    "folder_pattern": "environments/{account}/{environment}/"
+  },
+  "metadata": {
+    "version": "1.3",
+    "last_updated": "2025-01-30",
+    "purpose": "PrivateLink Terragrunt deployment configuration mapping",
+    "deployment_tool": "terragrunt",
+    "structure": "Standardized - all environments have folders including prd",
+    "path_construction": "Dynamic using base_path + folder_pattern"
+  }
+}

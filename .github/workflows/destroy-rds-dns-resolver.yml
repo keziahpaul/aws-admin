@@ -1,0 +1,164 @@
+name: Destroy RDS DNS Resolver
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws-account:
+        description: 'AWS Account'
+        required: true
+        type: choice
+        options:
+          - 'corenp'
+          - 'coreprd'
+          - 'digitalnp'
+          - 'digitalprd'
+          - 'datanp'
+          - 'management'
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - 'dev'
+          - 'tst'
+          - 'prf'
+          - 'pst'
+          - 'prd'
+      dry-run:
+        description: 'Dry run mode (show what would be destroyed)'
+        type: boolean
+        required: true
+        default: true
+      auto-approve:
+        description: 'Auto-approve destruction (skip confirmation)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-and-destroy:
+    name: Validate & Destroy RDS DNS Resolver
+    runs-on: ['non-prod', 'deploy']
+    outputs:
+      aws-account-id: ${{ steps.config.outputs.aws-account-id }}
+      runner-type: ${{ steps.config.outputs.runner-type }}
+      terragrunt-path: ${{ steps.config.outputs.terragrunt-path }}
+      is-valid: ${{ steps.config.outputs.is-valid }}
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Load & Validate Configuration
+        id: config
+        run: |
+          # Load configuration from external file
+          CONFIG_FILE=".github/config/rds-dns-resolver-accounts.json"
+          
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "❌ Configuration file not found: $CONFIG_FILE"
+            exit 1
+          fi
+          
+          # Extract account configuration with safe handling for corrupted files
+          ACCOUNT_CONFIG=$(jq -r ".accounts?[\"${{ inputs.aws-account }}\"]" "$CONFIG_FILE")
+          
+          if [[ -z "$ACCOUNT_CONFIG" || "$ACCOUNT_CONFIG" == "null" ]]; then
+            echo "❌ Invalid AWS account: ${{ inputs.aws-account }}"
+            echo "✅ Available accounts: $(jq -r '.accounts | keys[]' "$CONFIG_FILE" | tr '\n' ', ' | sed 's/,$//')"
+            exit 1
+          fi
+          
+          # Extract configuration values
+          AWS_ACCOUNT_ID=$(echo "$ACCOUNT_CONFIG" | jq -r '.account_id')
+          VALID_ENVS=$(echo "$ACCOUNT_CONFIG" | jq -r '.environments[]')
+          RUNNER_TYPE=$(echo "$ACCOUNT_CONFIG" | jq -r '.runner_type')
+          DESCRIPTION=$(echo "$ACCOUNT_CONFIG" | jq -r '.description')
+          
+          # Extract terragrunt configuration
+          TERRAGRUNT_BASE_PATH=$(jq -r '.terragrunt.base_path' "$CONFIG_FILE")
+          FOLDER_PATTERN=$(jq -r '.terragrunt.folder_pattern' "$CONFIG_FILE")
+          
+          # Validate environment for this account
+          if ! echo "$VALID_ENVS" | grep -q "^${{ inputs.environment }}$"; then
+            echo "❌ Invalid environment '${{ inputs.environment }}' for account '${{ inputs.aws-account }}'"
+            echo "✅ Valid environments for ${{ inputs.aws-account }}: $(echo "$VALID_ENVS" | tr '\n' ', ' | sed 's/,$//')"
+            exit 1
+          fi
+          
+          # Build terragrunt path dynamically using base_path and folder_pattern
+          # Replace {account} and {environment} placeholders in the pattern
+          DYNAMIC_PATH=$(echo "$FOLDER_PATTERN" | sed "s/{account}/${{ inputs.aws-account }}/g" | sed "s/{environment}/${{ inputs.environment }}/g")
+          FULL_TERRAGRUNT_PATH="$TERRAGRUNT_BASE_PATH/$DYNAMIC_PATH"
+          
+          # Verify the Terragrunt path exists
+          if [[ ! -d "$FULL_TERRAGRUNT_PATH" ]]; then
+            echo "❌ Terragrunt path not found: $FULL_TERRAGRUNT_PATH"
+            exit 1
+          fi
+          
+          # Set outputs
+          echo "aws-account-id=$AWS_ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "runner-type=$RUNNER_TYPE" >> $GITHUB_OUTPUT
+          echo "terragrunt-path=$FULL_TERRAGRUNT_PATH" >> $GITHUB_OUTPUT
+          echo "is-valid=true" >> $GITHUB_OUTPUT
+          
+          # Log successful validation
+          echo "✅ Configuration validated successfully:"
+          echo "  Account: ${{ inputs.aws-account }} ($DESCRIPTION)"
+          echo "  Environment: ${{ inputs.environment }}"
+          echo "  AWS Account ID: $AWS_ACCOUNT_ID"
+          echo "  Terragrunt Path: $FULL_TERRAGRUNT_PATH"
+
+  destroy-rds-dns-resolver:
+    name: Destroy RDS DNS Resolver Infrastructure
+    needs: validate-and-destroy
+    if: needs.validate-and-destroy.outputs.is-valid == 'true'
+    uses: ./.github/workflows/reusable-rds-dns-resolver-destroy.yml
+    with:
+      environment: ${{ inputs.environment }}
+      runner-type: ${{ needs.validate-and-destroy.outputs.runner-type }}
+      terragrunt-path: ${{ needs.validate-and-destroy.outputs.terragrunt-path }}
+      aws-account: ${{ needs.validate-and-destroy.outputs.aws-account-id }}
+      dry-run: ${{ inputs.dry-run }}
+      auto-approve: ${{ inputs.auto-approve }}
+
+  destruction-summary:
+    name: Destruction Summary
+    runs-on: ['non-prod', 'deploy']
+    needs: [validate-and-destroy, destroy-rds-dns-resolver]
+    if: always()
+    steps:
+      - name: 📊 Create Destruction Summary
+        run: |
+          echo "## 🗑️ RDS DNS Resolver Destruction Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Account** | ${{ inputs.aws-account }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AWS Account ID** | ${{ needs.validate-and-destroy.outputs.aws-account-id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Terragrunt Path** | ${{ needs.validate-and-destroy.outputs.terragrunt-path }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Dry Run** | ${{ inputs.dry-run }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Approve** | ${{ inputs.auto-approve }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Validation** | ${{ needs.validate-and-destroy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Destruction** | ${{ needs.destroy-rds-dns-resolver.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Completed**: $(date +'%d %b %Y, %T %Z')" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add destruction status
+          if [[ "${{ needs.destroy-rds-dns-resolver.result }}" == "success" ]]; then
+            if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+              echo "🔍 **Dry run completed. No resources were destroyed.**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Resources destroyed successfully!**" >> $GITHUB_STEP_SUMMARY
+            fi
+          elif [[ "${{ needs.destroy-rds-dns-resolver.result }}" == "failure" ]]; then
+            echo "❌ **Destruction failed. Please check the logs above.**" >> $GITHUB_STEP_SUMMARY
+          fi

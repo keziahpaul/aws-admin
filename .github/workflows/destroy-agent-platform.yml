@@ -1,0 +1,90 @@
+name: Destroy Agent Platform Agent
+
+# Manual, approval-gated teardown of a SINGLE agent from the shared
+# agent-platform stack. Safe by default (dry-run). Actual destruction requires
+# auto-approve = true AND passes through the target environment's GitHub
+# Environment protection (reviewers/approval), matching the repo's other
+# destroy workflows (e.g. destroy-rds-dns-resolver.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - tst
+          - pst
+          - prd
+      agent:
+        description: 'Agent to destroy (agents/<name>.hcl basename, e.g. aira)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Dry run (show destroy plan only)'
+        type: boolean
+        required: true
+        default: true
+      auto-approve:
+        description: 'Auto-approve destruction (must be true to actually destroy)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Configuration
+    runs-on: ['non-prod', 'deploy']
+    outputs:
+      account-id: ${{ steps.config.outputs.account-id }}
+      runner-type: ${{ steps.config.outputs.runner-type }}
+      terragrunt-path: ${{ steps.config.outputs.terragrunt-path }}
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v5
+
+      - name: 🔍 Resolve account & path for environment
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONFIG_FILE=".github/config/agent-platform-accounts.json"
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "❌ Config file not found: $CONFIG_FILE"; exit 1
+          fi
+          ENV='${{ inputs.environment }}'
+          # dev/tst live in datanp; pst/prd live in dataprd (mirrors deploy workflow).
+          case "$ENV" in
+            dev|tst) ACCOUNT_KEY="datanp"; SUBACCT="datanp" ;;
+            pst|prd) ACCOUNT_KEY="dataprd"; SUBACCT="dataprd" ;;
+            *) echo "❌ Unknown environment: $ENV"; exit 1 ;;
+          esac
+          ACCOUNT_ID=$(jq -r ".${ACCOUNT_KEY}.account_id" "$CONFIG_FILE")
+          RUNNER_TYPE=$(jq -r ".${ACCOUNT_KEY}.runner_type" "$CONFIG_FILE")
+          TG_PATH="terraform/infrastructure/agent-platform/environments/${SUBACCT}/${ENV}"
+          if [[ ! -d "$TG_PATH" ]]; then
+            echo "❌ Terragrunt path not found: $TG_PATH"; exit 1
+          fi
+          echo "account-id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "runner-type=$RUNNER_TYPE" >> $GITHUB_OUTPUT
+          echo "terragrunt-path=$TG_PATH" >> $GITHUB_OUTPUT
+          echo "✅ env=$ENV account=$ACCOUNT_ID path=$TG_PATH"
+
+  destroy:
+    name: Destroy agent
+    needs: [validate]
+    uses: ./.github/workflows/reusable-agent-platform-destroy.yml
+    with:
+      environment: ${{ inputs.environment }}
+      runner-type: ${{ needs.validate.outputs.runner-type }}
+      aws-account: ${{ needs.validate.outputs.account-id }}
+      terragrunt-path: ${{ needs.validate.outputs.terragrunt-path }}
+      agent: ${{ inputs.agent }}
+      dry-run: ${{ inputs.dry-run }}
+      auto-approve: ${{ inputs.auto-approve }}

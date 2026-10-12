@@ -1,0 +1,148 @@
+name: Deploy RDS DNS Resolver
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws-account:
+        description: 'AWS Account'
+        required: true
+        type: choice
+        options:
+          - 'corenp'
+          - 'coreprd'
+          - 'digitalnp'
+          - 'digitalprd'
+          - 'datanp'
+          - 'management'
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - 'dev'
+          - 'tst'
+          - 'prf'
+          - 'pst'
+          - 'prd'
+      no-execute-changeset:
+        description: 'Do NOT Execute (dry run mode)'
+        type: boolean
+        required: true
+        default: false
+  workflow_call:
+    inputs:
+      aws-account:
+        description: 'AWS Account'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+      no-execute-changeset:
+        description: 'Do NOT Execute (dry run mode)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-and-deploy:
+    name: Validate & Deploy RDS DNS Resolver
+    runs-on: ['non-prod', 'deploy']
+    outputs:
+      aws-account-id: ${{ steps.config.outputs.aws-account-id }}
+      runner-type: ${{ steps.config.outputs.runner-type }}
+      terragrunt-path: ${{ steps.config.outputs.terragrunt-path }}
+      is-valid: ${{ steps.config.outputs.is-valid }}
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🔍 Load & Validate Configuration
+        id: config
+        run: |
+          # Load configuration from external file
+          CONFIG_FILE=".github/config/rds-dns-resolver-accounts.json"
+          
+          if [[ ! -f "$CONFIG_FILE" ]]; then
+            echo "❌ Configuration file not found: $CONFIG_FILE"
+            exit 1
+          fi
+          
+          # Extract account configuration with safe handling for corrupted files
+          ACCOUNT_CONFIG=$(jq -r ".accounts?[\"${{ inputs.aws-account }}\"]" "$CONFIG_FILE")
+          
+          if [[ -z "$ACCOUNT_CONFIG" || "$ACCOUNT_CONFIG" == "null" ]]; then
+            echo "❌ Invalid AWS account: ${{ inputs.aws-account }}"
+            echo "✅ Available accounts: $(jq -r '.accounts | keys[]' "$CONFIG_FILE" | tr '\n' ', ' | sed 's/,$//')"
+            exit 1
+          fi
+          
+          # Extract configuration values
+          AWS_ACCOUNT_ID=$(echo "$ACCOUNT_CONFIG" | jq -r '.account_id')
+          VALID_ENVS=$(echo "$ACCOUNT_CONFIG" | jq -r '.environments[]')
+          RUNNER_TYPE=$(echo "$ACCOUNT_CONFIG" | jq -r '.runner_type')
+          DESCRIPTION=$(echo "$ACCOUNT_CONFIG" | jq -r '.description')
+          
+          # Extract terragrunt configuration
+          TERRAGRUNT_BASE_PATH=$(jq -r '.terragrunt.base_path' "$CONFIG_FILE")
+          FOLDER_PATTERN=$(jq -r '.terragrunt.folder_pattern' "$CONFIG_FILE")
+          
+          # Validate environment for this account
+          if ! echo "$VALID_ENVS" | grep -q "^${{ inputs.environment }}$"; then
+            echo "❌ Invalid environment '${{ inputs.environment }}' for account '${{ inputs.aws-account }}'"
+            echo "✅ Valid environments for ${{ inputs.aws-account }}: $(echo "$VALID_ENVS" | tr '\n' ', ' | sed 's/,$//')"
+            exit 1
+          fi
+          
+          # Build terragrunt path dynamically using base_path and folder_pattern
+          # Replace {account} and {environment} placeholders in the pattern
+          DYNAMIC_PATH=$(echo "$FOLDER_PATTERN" | sed "s/{account}/${{ inputs.aws-account }}/g" | sed "s/{environment}/${{ inputs.environment }}/g")
+          FULL_TERRAGRUNT_PATH="$TERRAGRUNT_BASE_PATH/$DYNAMIC_PATH"
+          
+          # Verify the Terragrunt path exists
+          if [[ ! -d "$FULL_TERRAGRUNT_PATH" ]]; then
+            echo "❌ Terragrunt path not found: $FULL_TERRAGRUNT_PATH"
+            echo "Available paths:"
+            find terraform/infrastructure/rds-dns-resolver/environments -name "terragrunt.hcl" -type f | head -10
+            exit 1
+          fi
+          
+          # Verify terragrunt.hcl exists in the path
+          if [[ ! -f "$FULL_TERRAGRUNT_PATH/terragrunt.hcl" ]]; then
+            echo "❌ terragrunt.hcl not found in: $FULL_TERRAGRUNT_PATH"
+            echo "Contents of directory:"
+            ls -la "$FULL_TERRAGRUNT_PATH"
+            exit 1
+          fi
+          
+          # Set outputs
+          echo "aws-account-id=$AWS_ACCOUNT_ID" >> $GITHUB_OUTPUT
+          echo "runner-type=$RUNNER_TYPE" >> $GITHUB_OUTPUT
+          echo "terragrunt-path=$FULL_TERRAGRUNT_PATH" >> $GITHUB_OUTPUT
+          echo "is-valid=true" >> $GITHUB_OUTPUT
+          
+          # Log successful validation
+          echo "✅ Configuration validated successfully:"
+          echo "  Account: ${{ inputs.aws-account }} ($DESCRIPTION)"
+          echo "  Environment: ${{ inputs.environment }}"
+          echo "  AWS Account ID: $AWS_ACCOUNT_ID"
+          echo "  Runner Type: $RUNNER_TYPE"
+          echo "  Terragrunt Path: $FULL_TERRAGRUNT_PATH"
+          echo "  Path Construction: Dynamic ($TERRAGRUNT_BASE_PATH + $DYNAMIC_PATH)"
+
+  deploy-rds-dns-resolver:
+    name: Deploy RDS DNS Resolver Infrastructure
+    needs: validate-and-deploy
+    if: needs.validate-and-deploy.outputs.is-valid == 'true'
+    uses: ./.github/workflows/reusable-rds-dns-resolver.yml
+    with:
+      environment: ${{ inputs.environment }}
+      runner-type: ${{ needs.validate-and-deploy.outputs.runner-type }}
+      terragrunt-path: ${{ needs.validate-and-deploy.outputs.terragrunt-path }}
+      aws-account: ${{ needs.validate-and-deploy.outputs.aws-account-id }}
+      no-execute-changeset: ${{ inputs.no-execute-changeset }}

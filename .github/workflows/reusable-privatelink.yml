@@ -1,0 +1,263 @@
+name: Deploy Privatelink [Reusable - Terragrunt]
+
+# Workflow trigger(s)
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        type: string
+        required: true
+      runner-type:
+        description: 'Type of runner, choose between "prod" or "non-prod"'
+        type: string
+        required: true
+      aws-account:
+        description: 'AWS account id'
+        required: true
+        type: string
+      no-execute-changeset:
+        description: 'Do NOT Execute (dry run mode)'
+        type: boolean
+        required: true
+        default: false
+      terragrunt-path:
+        description: 'Path to Terragrunt configuration'
+        type: string
+        required: true
+    outputs:
+      terragrunt-plan-exitcode:
+        description: 'Terragrunt plan exit code'
+        value: ${{ jobs.deploy-privatelink-infra.outputs.plan-exitcode }}
+      deployment-status:
+        description: 'Overall deployment status'
+        value: ${{ jobs.deploy-privatelink-infra.outputs.status }}
+
+# GitHub Permissions for the entire workflow
+permissions:
+  id-token: write
+  contents: read
+
+# Jobs
+jobs:
+  deploy-privatelink-infra:
+    name: Deploy Privatelink Infrastructure
+    runs-on: ['${{ inputs.runner-type }}', 'deploy']
+    environment: ${{ inputs.environment }}
+    container:
+      image: '004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/apim-kong-provisioning:latest'
+      volumes:
+        - /home/github/.ssh/runner_ssh:/root/.ssh/id_rsa
+        - /home/github/.ssh/known_hosts:/root/.ssh/known_hosts
+    outputs:
+      plan-exitcode: ${{ steps.plan.outputs.exitcode }}
+      status: ${{ steps.status.outputs.result }}
+    steps:
+      - name: 📋 Deployment Information
+        run: |
+          echo "## 🚀 PrivateLink Infrastructure Deployment" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **AWS Account** | ${{ inputs.aws-account }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Terragrunt Path** | ${{ inputs.terragrunt-path }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Runner Type** | ${{ inputs.runner-type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Dry Run** | ${{ inputs.no-execute-changeset }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Tool** | Terragrunt |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: 🔐 Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ inputs.aws-account }}:role/GitHubRunnerAWSPrivatelinkDeployRole
+          role-duration-seconds: 900
+          role-skip-session-tagging: true
+          aws-region: ap-southeast-2
+
+      - name: 🔧 Terragrunt Version
+        id: version
+        run: |
+          terragrunt --version
+          terraform version
+          echo "terragrunt-version=$(terragrunt --version | head -1)" >> $GITHUB_OUTPUT
+          echo "terraform-version=$(terraform version -json | jq -r '.terraform_version')" >> $GITHUB_OUTPUT
+
+      - name: 📍 Verify Terragrunt Path
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Terragrunt config file:"
+          if [[ -f "terragrunt.hcl" ]]; then
+            echo "✅ terragrunt.hcl found"
+            head -10 terragrunt.hcl
+          else
+            echo "❌ terragrunt.hcl not found"
+            ls -la
+            exit 1
+          fi
+
+      - name: 🏗️ Terragrunt Init
+        id: init
+        working-directory: ${{ inputs.terragrunt-path }}
+        run: |
+          echo "Initializing Terragrunt in: ${{ inputs.terragrunt-path }}"
+          terragrunt init
+        
+      - name: ✅ Terragrunt Validate
+        id: validate
+        working-directory: ${{ inputs.terragrunt-path }}
+        run: |
+          terragrunt validate
+      
+      - name: 📋 Terragrunt Plan
+        id: plan
+        working-directory: ${{ inputs.terragrunt-path }}
+        run: |
+          echo "Planning deployment with Terragrunt"
+          set +e
+          terragrunt plan -detailed-exitcode
+          
+          PLAN_EXIT_CODE=$?
+          echo "exitcode=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          case $PLAN_EXIT_CODE in
+            0)
+              echo "✅ No changes needed"
+              echo "plan-status=no-changes" >> $GITHUB_OUTPUT
+              ;;
+            1)
+              echo "❌ Terragrunt plan failed"
+              echo "plan-status=failed" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+            2)
+              echo "📝 Changes detected"
+              echo "plan-status=changes-detected" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "❓ Unknown exit code: $PLAN_EXIT_CODE"
+              echo "plan-status=unknown" >> $GITHUB_OUTPUT
+              exit 1
+              ;;
+          esac
+
+      - name: 🔍 Validate Branch Permissions
+        id: branch-check
+        if: steps.plan.outputs.exitcode == '2' && !inputs.no-execute-changeset
+        shell: bash
+        run: |
+          ENVIRONMENT="${{ inputs.environment }}"
+          BRANCH_REF="${{ github.ref }}"
+          ALLOWED=false
+          
+          echo "## 🔍 Branch Permission Validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | $ENVIRONMENT |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | $BRANCH_REF |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "Checking deployment permissions for environment: $ENVIRONMENT"
+          echo "Current branch: $BRANCH_REF"
+          
+          case $ENVIRONMENT in
+            "dev")
+              if [[ $BRANCH_REF == refs/heads/feature/* ]]; then
+                ALLOWED=true
+                echo "✅ Dev environment: feature branch allowed"
+                echo "| **Status** | ✅ Allowed |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ Dev environment only allows feature/* branches"
+                echo "| **Status** | ❌ Not Allowed |" >> $GITHUB_STEP_SUMMARY
+                echo "| **Allowed Branches** | feature/* |" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            "tst")
+              if [[ $BRANCH_REF == "refs/heads/develop" ]]; then
+                ALLOWED=true
+                echo "✅ Test environment: develop branch allowed"
+                echo "| **Status** | ✅ Allowed |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ Test environment only allows develop branch"
+                echo "| **Status** | ❌ Not Allowed |" >> $GITHUB_STEP_SUMMARY
+                echo "| **Allowed Branches** | develop |" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            "pst"|"prd")
+              if [[ $BRANCH_REF == "refs/heads/develop" ]] || \
+                 [[ $BRANCH_REF == "refs/heads/main" ]] || \
+                 [[ $BRANCH_REF == refs/heads/release/* ]]; then
+                ALLOWED=true
+                echo "✅ $ENVIRONMENT environment: branch allowed"
+                echo "| **Status** | ✅ Allowed |" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "❌ $ENVIRONMENT environment only allows develop, main, or release/* branches"
+                echo "| **Status** | ❌ Not Allowed |" >> $GITHUB_STEP_SUMMARY
+                echo "| **Allowed Branches** | develop, main, release/* |" >> $GITHUB_STEP_SUMMARY
+              fi
+              ;;
+            *)
+              echo "❌ Unknown environment: $ENVIRONMENT"
+              echo "| **Status** | ❌ Unknown Environment |" >> $GITHUB_STEP_SUMMARY
+              ;;
+          esac
+          
+          if [[ $ALLOWED == "true" ]]; then
+            echo "deployment-allowed=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Branch $BRANCH_REF is not allowed to deploy to $ENVIRONMENT environment"
+            echo "deployment-allowed=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: 🚀 Terragrunt Apply
+        id: apply
+        if: |
+          steps.branch-check.outputs.deployment-allowed == 'true' &&
+          !inputs.no-execute-changeset && 
+          steps.plan.outputs.exitcode == '2'
+        working-directory: ${{ inputs.terragrunt-path }}
+        run: |
+          echo "Applying Terragrunt changes..."
+          terragrunt apply -auto-approve
+          echo "✅ Terragrunt apply completed successfully"
+
+      - name: 📊 Show Terragrunt Outputs
+        if: |
+          (steps.apply.outcome == 'success' || steps.plan.outputs.exitcode == '0') &&
+          !inputs.no-execute-changeset
+        working-directory: ${{ inputs.terragrunt-path }}
+        shell: bash
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📋 Terragrunt Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          terragrunt output 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No outputs available" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: 📈 Set Job Status
+        id: status
+        if: always()
+        run: |
+          if [[ "${{ steps.apply.outcome }}" == "success" ]] || [[ "${{ steps.plan.outputs.exitcode }}" == "0" ]]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+          elif [[ "${{ inputs.no-execute-changeset }}" == "true" ]] && [[ "${{ steps.plan.outcome }}" == "success" ]]; then
+            echo "result=dry-run-success" >> $GITHUB_OUTPUT
+          else
+            echo "result=failed" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🧹 Cleanup
+        if: always()
+        run: |
+          echo "Cleaning up workspace..."
+          rm -rf "/github/workspace/runners" || true
+          # Clean up Terragrunt cache
+          find ${{ inputs.terragrunt-path }} -name ".terragrunt-cache" -type d -exec rm -rf {} + 2>/dev/null || true

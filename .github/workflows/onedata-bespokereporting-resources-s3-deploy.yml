@@ -1,0 +1,174 @@
+name: Deploy-onedata-bespokereporting-resources-s3
+on:
+  push:
+    branches:
+      - feature/DD-*
+      - develop
+
+    paths:
+      - 'cloudformation/parameters/resources-*/onedata-bespokereporting-resources-s3.properties'
+      - '.github/workflows/onedata-bespokereporting-resources-s3-deploy.yml'
+      - 'cloudformation/templates/onedata-bespokereporting-resources/onedata-bespokereporting-resources-s3.yml'
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'cloudformation/parameters/resources-*/onedata-bespokereporting-resources-s3.properties'
+      - '.github/workflows/onedata-bespokereporting-resources-s3-deploy.yml'
+      - 'cloudformation/templates/onedata-bespokereporting-resources/onedata-bespokereporting-resources-s3.yml'
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
+
+
+jobs:
+  deploy-onedata-bespokereporting-resources-s3-dev:
+    name: deploy-onedata-bespokereporting-resources-s3-dev
+    if: startsWith(github.ref ,'refs/heads/feature/DD') && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='dev'
+          StackName='onedata-bespokereporting-resources-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-bespokereporting-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-bespokereporting-resources-data-s3-tst:
+    name: deploy-onedata-bespokereporting-resources-s3-tst
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    runs-on: [non-prod, deploy]
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='tst'
+          StackName='onedata-bespokereporting-resources-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-bespokereporting-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-bespokereporting-resources-data-s3-pst:
+    name: deploy-onedata-bespokereporting-resources-s3-pst
+    if: startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: [prod, deploy]
+    environment: pst
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='pst'
+          StackName='onedata-bespokereporting-resources-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-bespokereporting-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
+
+  deploy-onedata-bespokereporting-resources-data-s3-prd:
+    name: deploy-onedata-bespokereporting-resources-s3-prd
+    if: startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: [prod, deploy]
+    needs: [deploy-onedata-bespokereporting-resources-data-s3-pst]
+    environment: prd
+    outputs:
+      Environment: ${{ steps.get-parameter.outputs.Environment }}
+      StackName: ${{ steps.get-parameter.outputs.StackName }}
+      Parameter: ${{ steps.get-parameter.outputs.Parameter }}
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v3
+      - name: Get Parameters
+        id: get-parameter
+        env:
+          parameter_env: ${{ github.ref_name }}
+        run: |
+         ls -lrt
+          Environment='prd'
+          StackName='onedata-bespokereporting-resources-s3'
+          Parameter=./cloudformation/parameters/resources-${Environment}/${StackName}.properties
+
+          echo "Environment=$Environment" >> $GITHUB_OUTPUT
+          echo "StackName=$StackName" >> $GITHUB_OUTPUT
+          echo "Parameter=$Parameter" >> $GITHUB_OUTPUT
+
+          echo " Environment: $Environment "
+
+      - name: deploy-onedata-resources
+        uses: ./.github/actions/onedata-resource-deploy
+        with:
+          Stack: "${{ steps.get-parameter.outputs.StackName }}-${{ steps.get-parameter.outputs.Environment }}"
+          template: "cloudformation/templates/onedata-bespokereporting-resources/${{ steps.get-parameter.outputs.StackName }}.yml"
+          Environment: ${{ steps.get-parameter.outputs.Environment }}
+          ParameterPath: ${{ steps.get-parameter.outputs.Parameter }}
+          Capability: "CAPABILITY_NAMED_IAM,CAPABILITY_AUTO_EXPAND"
