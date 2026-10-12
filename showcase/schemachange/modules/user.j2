@@ -1,0 +1,298 @@
+{% import 'modules/support.j2' as support with context -%}
+
+{#-
+    This file is part of the Schemachange project.
+    It provides macros for managing roles in Snowflake.
+
+    Macros included:
+        - name: Returns the name of the schema based on the environment, database, and schema.
+        - create: Creates a new schema with specified parameters.
+        - drop: Drops an existing schema if it exists.
+        - use: Sets the current schema context.
+        - comment: Alters the comment on an existing schema.
+        - tag: Applies or removes tags on a schema.
+        - grant_usage: Grants usage privileges on a schema to a role.
+        - revoke_usage: Revokes usage privileges on a schema from a role.
+
+    Privileges required?:
+        CREATE SCHEMA
+        OWNERSHIP
+-#}
+
+{#-
+    Returns the name of the schema based on the environment, database, and schema.
+    This macro is used to ensure consistent naming conventions across different environments (DEV, TST, PST, PRD).
+
+    Preconditions:
+        global_var in_sf_env should be set to one of DEV, TST, PST, PRD
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+    Returns:
+        A string formatted as <in_sf_env>_<db>.<schema>, e.g., DEV_PROJECT.PART1
+    Raises:
+        An error if in_sf_env is not set or is not one of DEV, TST, PST, PRD
+        An error if db or schema is not provided or is empty
+
+    Example usage:
+        {{ schema.name('PROJECT', 'PART1') }}
+    Returns:
+        DEV_PROJECT.PART1
+-#}
+{% macro name(db, schema) -%}
+    {%- if not db or db | trim == "" -%}
+        {{ support.raise("db must be provided to schema.name macro") }}
+    {%- endif -%}
+    {%- if not schema or schema | trim == "" -%}
+        {{ support.raise("schema must be provided to schema.name macro") }}
+    {%- endif -%}
+    {%- if not in_sf_env or in_sf_env | trim | upper not in ['DEV', 'TST', 'PST', 'PRD']  -%}
+        {{ support.raise("in_sf_env must be one of DEV, TST, PST, PRD") }}
+    {%- endif -%}
+    {{ in_sf_env | trim | upper }}_{{ db | trim | upper }}.{{ schema | trim | upper }}
+{%- endmacro %}
+
+{#-
+    Creates a new schema with specified parameters.
+    This macro allows for the creation of a schema with optional comment, tag, and value.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+        comment - an optional comment for the schema
+        tags - an optional dictionary of {tag: value} to set on the schema
+    Returns:
+        A SQL statement to create the schema with the specified parameters.
+    Raises:
+        An error if either db or schema is not provided or is empty
+        An error if tags is provided and is not a dictionary
+
+    Example usage:
+        {{ schema.create('PROJECT', 'PART1') }}
+        {{ schema.create('PROJECT', 'PART1', 'This is a test schema') }}
+        {{ schema.create('PROJECT', 'PART1', tags={'TEST_TAG':'Test Value'}) }}
+        {{ schema.create('PROJECT', 'PART1', 'This is a test schema', {'TEST_TAG':'Test Value'}) }}
+    Returns:
+        CREATE SCHEMA DEV_PROJECT.PART1;
+        CREATE SCHEMA DEV_PROJECT.PART1 COMMENT = $$This is a test schema$$;
+        CREATE SCHEMA DEV_PROJECT.PART1 TAG (TEST_TAG = $$Test Value$$);
+        CREATE SCHEMA DEV_PROJECT.PART1 COMMENT = $$This is a test schema$$ TAG (TEST_TAG = $$Test Value$$);
+-#}
+{% macro create(db, schema, comment=none, tags={}) -%}
+    {% if tags and not tags is mapping -%}
+        {{ support.raise("tags must be provided as a dictionary to the schema.create macro") }}
+    {%- endif -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_ROLE_CREATE') }}
+CREATE SCHEMA {{ name(db, schema) }}
+    {%- if comment %}
+    COMMENT = {{ support.snowflake_safe_string(comment) }}
+    {%- endif -%}
+    {%- if tags -%}
+        {%- set taglist -%}
+            {{ support.tag_list(tags) }}
+        {%- endset -%}
+        {%- if taglist | trim %}
+    TAG (
+        {{ taglist }}
+        )
+        {%- endif -%}
+    {%- endif -%}
+    ;
+--CREATE [ OR REPLACE ] ROLE [ IF NOT EXISTS ] <name>
+--  [ COMMENT = '<string_literal>' ]
+--  [ [ WITH ] TAG ( <tag_name> = '<tag_value>' [ , <tag_name> = '<tag_value>' , ... ] ) ]
+{{ support.restore_role('SAVE_ROLE_ROLE_CREATE') }}
+{%- endmacro %}
+
+{#-
+    Drops an existing schema if it exists.
+    This macro allows for the removal of a schema from the database.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+    Returns:
+        A SQL statement to drop the schema if it exists.
+    Raises:
+        An error if either db or schema is not provided or is empty
+
+    Example usage:
+        {{ schema.drop('PROJECT', 'PART1') }}
+    Returns:
+        DROP SCHEMA IF EXISTS DEV_PROJECT.PART1;
+-#}
+{% macro drop(db, schema) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_SCHEMA_DROP') }}
+DROP SCHEMA IF EXISTS {{ name(db, schema) }};
+{{ support.restore_role('SAVE_ROLE_SCHEMA_DROP') }}
+{%- endmacro %}
+
+{#-
+    Sets the current schema context.
+    This macro is used to switch the current schema to the specified one.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+    Returns:
+        A SQL statement to set the current schema context.
+    Raises:
+        An error if either db or schema is not provided or is empty
+
+    Example usage:
+        {{ schema.use('PROJECT', 'PART1') }}
+    Returns:
+        USE SCHEMA DEV_PROJECT.PART1;
+-#}
+{% macro use(db, schema) -%}
+USE SCHEMA {{ name(db, schema) }};
+{%- endmacro %}
+
+{#-
+    Alters the comment on an existing schema.
+    This macro allows for setting or unsetting a comment on a schema.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+        comment - an optional comment for the schema, if not provided, the comment is unset
+    Returns:
+        A SQL statement to alter the comment on the schema.
+    Raises:
+        An error if either db or schema is not provided or is empty
+
+    Example usage:
+        {{ schema.comment('PROJECT', 'PART1', 'This is a test schema') }}
+        {{ schema.comment('PROJECT', 'PART1') }}
+    Returns:
+        ALTER SCHEMA DEV_PROJECT.PART1 SET COMMENT = $$This is a test schema$$;
+        ALTER SCHEMA DEV_PROJECT.PART1 UNSET COMMENT;
+-#}
+{% macro comment(db, schema, comment=none) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_SCHEMA_ALTER') }}
+    {%- if comment %}
+ALTER SCHEMA {{ name(db, schema) }}
+    SET COMMENT = {{ support.snowflake_safe_string(comment) }};
+    {%- else %}
+ALTER SCHEMA {{ name(db, schema) }}
+    UNSET COMMENT;
+    {%- endif %}
+{{ support.restore_role('SAVE_ROLE_SCHEMA_ALTER') }}
+{%- endmacro %}
+
+{#-
+    Applies or removes tags on a schema.
+    This macro allows for setting or unsetting tags on a schema.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+        tags - a dictionary of {tag: value} to set/unset on the schema
+    Returns:
+        A SQL statement to set or unset the tag on the schema.
+    Raises:
+        An error if either db or schema is not provided or is empty
+        An error if tags is not a dictionary
+
+    Example usage:
+        {{ schema.tag('PROJECT', 'PART1', {'TEST_TAG': 'Test Value'}) }}
+        {{ schema.tag('PROJECT', 'PART1', {'TEST_TAG'}) }}
+    Returns:
+        ALTER SCHEMA DEV_PROJECT.PART1 SET TAG TEST_TAG = $$Test Value$$;
+        ALTER SCHEMA DEV_PROJECT.PART1 UNSET TAG TEST_TAG;
+-#}
+{% macro tag(db, schema, tags) -%}
+    {%- if tags and not tags is mapping -%}
+        {{ support.raise("tags must be provided as a dictionary to the schema.tag macro") }}
+    {%- endif -%}
+    {%- set addtaglist -%}
+        {{ support.tag_list(tags) }}
+    {%- endset -%}
+    {%- set deltaglist -%}
+        {{ support.tag_list(tags, false) }}
+    {%- endset -%}
+    {%- if addtaglist | trim or deltaglist | trim -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_SCHEMA_TAG') }}
+        {%- if addtaglist | trim %}
+ALTER SCHEMA {{ name(db, schema) }}
+    SET TAG
+        {{ addtaglist }};
+        {%- endif -%}
+        {%- if deltaglist | trim %}
+ALTER SCHEMA {{ name(db, schema) }}
+    UNSET TAG {{ deltaglist }};
+        {%- endif %}
+{{ support.restore_role('SAVE_ROLE_SCHEMA_TAG') }}
+    {%- endif -%}
+{%- endmacro %}
+
+{#-
+    Grants usage privileges on a schema to a role.
+    This macro allows for granting usage privileges to a specified role.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+        role - The role name must be provided and cannot be empty
+        isdbrole - A boolean indicating if the role is a database role (default: false)
+    Returns:
+        A SQL statement to grant usage privileges on the schema to the specified role.
+    Raises:
+        An error if either db or schema is not provided or is empty
+        An error if role is not provided or is empty
+
+    Example usage:
+        {{ schema.grant_usage('PROJECT', 'PART1', 'ANALYST_ROLE') }}
+        {{ schema.grant_usage('PROJECT', 'PART1', 'ANALYST_ROLE', true) }}
+    Returns:
+        GRANT USAGE ON SCHEMA DEV_PROJECT.PART1 TO ROLE ANALYST_ROLE;
+        GRANT USAGE ON SCHEMA DEV_PROJECT.PART1 TO DATABASE ROLE ANALYST_ROLE;
+-#}
+{% macro grant_usage(db, schema, role, isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to schema.grant_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_GRANT') }}
+GRANT USAGE ON SCHEMA {{ name(db, schema) }} TO {{ role }};
+{{ support.restore_role('SAVE_ROLE_GRANT') }}
+{%- endmacro %}
+
+{#-
+    Revokes usage privileges on a schema from a role.
+    This macro allows for revoking usage privileges from a specified role.
+
+    Preconditions:
+        db - The database name must be provided and cannot be empty
+        schema - The schema name must be provided and cannot be empty
+        role - The role name must be provided and cannot be empty
+        isdbrole - A boolean indicating if the role is a database role (default: false)
+    Returns:
+        A SQL statement to revoke usage privileges on the schema from the specified role.
+    Raises:
+        An error if either db or schema is not provided or is empty
+        An error if role is not provided or is empty
+
+    Example usage:
+        {{ schema.revoke_usage('PROJECT', 'PART1', 'ANALYST_ROLE') }}
+        {{ schema.revoke_usage('PROJECT', 'PART1', 'ANALYST_ROLE', true) }}
+    Returns:
+        REVOKE USAGE ON SCHEMA DEV_PROJECT.PART1 FROM ROLE ANALYST_ROLE;
+        REVOKE USAGE ON SCHEMA DEV_PROJECT.PART1 FROM DATABASE ROLE ANALYST_ROLE;
+-#}
+{% macro revoke_usage(db, schema, role, isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to schema.revoke_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_REVOKE') }}
+REVOKE USAGE ON SCHEMA {{ name(db, schema) }} FROM {{ role }};
+{{ support.restore_role('SAVE_ROLE_REVOKE') }}
+{%- endmacro %}

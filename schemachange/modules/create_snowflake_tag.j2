@@ -1,0 +1,23 @@
+{% macro create_tags(in_sf_env, tag_db, tag_schema, tag_name, comment, allowed_values=[]) -%}
+
+{% set tag_db_schema = in_sf_env~'_'~tag_db~'.'~tag_schema %}
+
+use role sysadmin;
+
+
+create tag if not exists {{ tag_db_schema }}.{{ tag_name }}
+{% if allowed_values|length > 0 -%}
+    allowed_values {% for value in allowed_values %}{% if not loop.first %}, {% endif %}'{{ value }}'{% endfor %}
+{% endif -%}
+with comment = '{{comment}}';
+
+grant ownership on tag {{ tag_db_schema }}.{{ tag_name }}  to role sysadmin revoke current grants;
+
+{%- if allowed_values|length > 0 -%}
+ALTER TAG {{ tag_db_schema }}.{{ tag_name }}
+    ADD ALLOWED_VALUES {% for value in allowed_values %}{% if not loop.first %}, {% endif %}'{{ value }}'{% endfor %};
+{%- endif -%}
+
+grant apply on tag {{ tag_db_schema }}.{{ tag_name }} to role {{in_sf_env}}_DBT_INTEGRATION_ROLE_S;
+
+{% endmacro -%}

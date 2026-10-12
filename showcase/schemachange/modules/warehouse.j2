@@ -1,0 +1,358 @@
+{% import 'modules/support.j2' as support with context -%}
+{#-
+    This file is part of the Schemachange project.
+    It provides macros for managing warehouses in Snowflake.
+
+    Macros included:
+        - size_name: Converts a size string into a Snowflake Warehouse size.
+        - size_abbr: Converts a size string into our naming convention abbreviation.
+        - name: Returns the naming convention for a warehouse.
+        - create: Creates a new warehouse with specified parameters.
+        - comment: Alters the comment on an existing warehouse.
+        - tag: Applies or removes tags on a warehouse.
+        - grant_usage: Grants usage on the specified warehouse to a role.
+        - revoke_usage: Revokes usage on the specified warehouse from a role.
+
+    Privileges required?:
+        CREATE WAREHOUSE
+        OWNERSHIP
+-#}
+
+{#-
+    Internal macro to handle warehouse size translation.
+    Converts a size string into a Snowflake standardized name and abbreviation.
+-#}
+{% macro _size_part(size='XSMALL', part='name') -%}
+    {%- set size = size | trim | upper -%}
+    {%- if size in ('XSMALL', 'X-SMALL', 'XS') -%}
+        {%- set result = {'name': 'XSMALL', 'abbreviation': 'XS'} -%}
+    {%- elif size in ('SMALL', 'S') -%}
+        {%- set result = {'name': 'SMALL', 'abbreviation': 'S'} -%}
+    {%- elif size in ('MEDIUM', 'M') -%}
+        {%- set result = {'name': 'MEDIUM', 'abbreviation': 'M'} -%}
+    {%- elif size in ('XLARGE', 'X-LARGE', 'XL') -%}
+        {%- set result = {'name': 'XLARGE', 'abbreviation': 'XL'} -%}
+    {%- elif size in ('XXLARGE', 'X2LARGE', '2X-LARGE', '2XL') -%}
+        {%- set result = {'name': 'XXLARGE', 'abbreviation': '2XL'} -%}
+    {%- elif size in ('XXXLARGE', 'X3LARGE', '3X-LARGE', '3XL') -%}
+        {%- set result = {'name': 'XXXLARGE', 'abbreviation': '3XL'} -%}
+    {%- elif size in ('X4LARGE', '4X-LARGE', '4XL') -%}
+        {%- set result = {'name': 'X4LARGE', 'abbreviation': '4XL'} -%}
+    {%- elif size in ('X5LARGE', '5X-LARGE', '5XL') -%}
+        {%- set result = {'name': 'X5LARGE', 'abbreviation': '5XL'} -%}
+    {%- elif size in ('X6LARGE','6X-LARGE', '6XL') -%}
+        {%- set result = {'name': 'X6LARGE', 'abbreviation': '6XL'} -%}
+    {%- else -%}
+        {%- set result = {'name': 'XSMALL', 'abbreviation': 'XS' } -%}
+    {%- endif -%}
+    {{ result[part | lower] }}
+{%- endmacro %}
+
+{#-
+    Return the name of the warehouse size based on the environment.
+    This macro is used to create a consistent naming convention for warehouses across different environments.
+
+    Preconditions:
+        size - must be a valid Snowflake warehouse size
+
+    Returns:
+        A string representing the full name of the warehouse size, e.g. XSMALL, SMALL, MEDIUM, XLARGE, 2XLARGE, etc.
+
+    Example Usage:
+        {{ warehouse.size_name('SMALL') }}
+        {{ warehouse.size_name('S') }}
+
+    Example Returns:
+        SMALL
+-#}
+{% macro size_name(size='XSMALL') -%}
+    {{ _size_part(size, 'name') }}
+{%- endmacro %}
+
+{#-
+    Return the abbreviation of the warehouse size based on the environment.
+    This macro is used to create a consistent naming convention for warehouses across different environments.
+
+    Preconditions:
+        size - must be a valid Snowflake warehouse size
+
+    Returns:
+        A string representing the abbreviated size, e.g. XS, S, M, XL, 2XL, etc.
+
+    Example Usage:
+        {{ warehouse.size_abbr('SMALL') }}
+        {{ warehouse.size_abbr('S') }}
+
+    Example Returns:
+        S
+-#}
+{% macro size_abbr(size='XSMALL') -%}
+    {{ _size_part(size, 'abbreviation') }}
+{%- endmacro %}
+
+{#-
+    Return the name of the warehouse based on the environment, name, size, and whether or not it is snowpark optimized.
+    This macro is used to create a consistent naming convention for warehouses across different environments.
+
+    Preconditions:
+        global var in_sf_env should be set to one of DEV, TST, PST, PRD
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+
+    Returns:
+        A string in the format of <in_sf_env>_<wh_name>_<size_abbr>[_<is_snowpark>]_WH
+        e.g. DEV_MY_WAREHOUSE_S_WH
+
+    Example Usage:
+        {{ warehouse.name('my_warehouse', 'SMALL', false) }}
+        {{ warehouse.name('my_warehouse', 'SMALL', true) }}
+
+    Example Returns:
+        DEV_MY_WAREHOUSE_S_WH
+        DEV_MY_WAREHOUSE_S_SP_WH
+-#}
+{% macro name(wh_name, size='XS', is_snowpark=false) -%}
+    {%- if not wh_name or wh_name | trim == "" -%}
+        {{ support.raise("wh_name must be provided to warehouse.name macro") }}
+    {%- endif -%}
+    {%- if not in_sf_env or in_sf_env | trim | upper not in ['DEV', 'TST', 'PST', 'PRD']  -%}
+        {{ support.raise("in_sf_env must be one of DEV, TST, PST, PRD") }}
+    {%- endif -%}
+    {{ in_sf_env | trim | upper }}_{{ wh_name | trim | upper }}_{{ size_abbr(size) }}{%- if is_snowpark -%}_SP{%- endif -%}_WH
+{%- endmacro %}
+
+{#-
+    This macro creates a new Snowflake warehouse with specified parameters.
+    It takes the warehouse name, size, whether it's a Snowpark warehouse,
+    maximum cluster count, auto suspend time, tags, and an optional comment.
+
+    Preconditions:
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+        max_cluster_count - maximum number of clusters for the warehouse (default 1)
+        auto_suspend - time in seconds after which the warehouse will auto-suspend (default 600)
+        tags - a dictionary where keys are tag names and values are tag values
+        comment - a string to set as the comment; if None, no comment will be set.
+
+    Returns:
+        SQL statement to create the specified warehouse.
+
+    Raises:
+        An error if wh_name is not provided or is empty
+
+    Example Usage:
+        {{ warehouse.create('my_warehouse', 'SMALL', false, 2, 300, {'tag1': 'value1'}, 'This is my warehouse') }}
+
+    Example Returns:
+        CREATE WAREHOUSE DEV_MY_WAREHOUSE_S_WH
+          WAREHOUSE_TYPE = STANDARD
+          WAREHOUSE_SIZE = SMALL
+          MAX_CLUSTER_COUNT = 2
+          MIN_CLUSTER_COUNT = 1
+          SCALING_POLICY = STANDARD
+          AUTO_SUSPEND = 300
+          AUTO_RESUME = TRUE
+          INITIALLY_SUSPENDED = TRUE
+          COMMENT = $$This is my warehouse$$
+          ENABLE_QUERY_ACCELERATION = FALSE
+          QUERY_ACCELERATION_MAX_SCALE_FACTOR = 0
+          TAG (tag1 = 'value1');
+-#}
+{% macro create(wh_name, size='XSMALL', is_snowpark=false, max_cluster_count=1, auto_suspend=60, tags={}, comment=none) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_WAREHOUSE_CREATE') }}
+CREATE WAREHOUSE {{ name(wh_name, size, is_snowpark) }}
+    {%- if is_snowpark %}
+    WAREHOUSE_TYPE = 'SNOWPARK-OPTIMIZED'
+    {%- else %}
+    WAREHOUSE_TYPE = STANDARD
+    {%- endif %}
+    WAREHOUSE_SIZE = {{ size_name(size) }}
+    MAX_CLUSTER_COUNT = {{ max_cluster_count }}
+    MIN_CLUSTER_COUNT = 1
+    SCALING_POLICY = STANDARD
+    AUTO_SUSPEND = {{ auto_suspend }}
+    AUTO_RESUME = TRUE
+    INITIALLY_SUSPENDED = TRUE
+    {%- if comment %}
+    COMMENT = {{ support.snowflake_safe_string(comment) }}
+    {%- endif %}
+    ENABLE_QUERY_ACCELERATION = FALSE
+    QUERY_ACCELERATION_MAX_SCALE_FACTOR = 0
+    {%- if tags -%}
+        {%- set taglist -%}
+            {{ support.tag_list(tags) }}
+        {%- endset -%}
+        {%- if taglist | trim %}
+    TAG (
+        {{ taglist }}
+        )
+        {%- endif -%}
+    {%- endif -%}
+;
+{{ support.restore_role('SAVE_ROLE_WAREHOUSE_CREATE') }}
+{%- endmacro %}
+
+{#-
+    This macro alters the comment on an existing Snowflake warehouse.
+    It takes the warehouse name, size, whether it's a Snowpark warehouse,
+    and an optional comment to set or unset.
+
+    Preconditions:
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+        comment - a string to set as the comment; if None, the comment will be unset.
+
+    Returns:
+        SQL statement to set or unset the comment on the specified warehouse.
+
+    Raises:
+        An error if wh_name is not provided or is empty
+
+    Example Usage:
+        {{ warehouse.comment('my_warehouse', 'SMALL', false, 'This is my warehouse') }}
+        {{ warehouse.comment('my_warehouse', 'SMALL', false) }}
+
+    Example Returns:
+        ALTER WAREHOUSE DEV_MY_WAREHOUSE_S_WH SET COMMENT = $$This is my warehouse$$;
+        ALTER WAREHOUSE DEV_MY_WAREHOUSE_S_WH UNSET COMMENT;
+-#}
+{% macro comment(wh_name, size='XSMALL', is_snowpark=false, comment=none) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_WAREHOUSE_COMMENT') }}
+    {%- if comment %}
+ALTER WAREHOUSE {{ name(wh_name, size, is_snowpark) }}
+    SET COMMENT = {{ support.snowflake_safe_string(comment) }};
+    {%- else %}
+ALTER WAREHOUSE {{ name(wh_name, size, is_snowpark) }}
+    UNSET COMMENT;
+    {%- endif %}
+{{ support.restore_role('SAVE_ROLE_WAREHOUSE_COMMENT') }}
+{%- endmacro %}
+
+{#-
+    This macro applies or removes tags on a Snowflake warehouse.
+    It takes the warehouse name, size, whether it's a Snowpark warehouse,
+    and a dictionary of tags to apply or remove.
+
+    Preconditions:
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+        tags - a dictionary where keys are tag names and values are tag values
+            If a value is None, the tag will be removed; otherwise, it will be set to the provided value.
+
+    Returns:
+        SQL statements to set or unset tags on the specified warehouse.
+
+    Raises:
+        An error if wh_name is not provided or is empty
+
+    Example Usage:
+        {{ warehouse.tag('my_warehouse', 'SMALL', false, {'tag1': 'value1', 'tag2': None}) }}
+
+    Example Returns:
+        ALTER WAREHOUSE DEV_MY_WAREHOUSE_S_WH SET TAG tag1 = 'value1';
+        ALTER WAREHOUSE DEV_MY_WAREHOUSE_S_WH UNSET TAG tag2;
+-#}
+{% macro tag(wh_name, size='XSMALL', is_snowpark=false, tags={}) -%}
+    {%- if tags and not tags is mapping -%}
+        {{ support.raise("tags must be provided as a dictionary to the warehouse.tag macro") }}
+    {%- endif -%}
+    {%- set addtaglist -%}
+        {{ support.tag_list(tags) }}
+    {%- endset -%}
+    {%- set deltaglist -%}
+        {{ support.tag_list(tags, false) }}
+    {%- endset -%}
+    {%- if addtaglist | trim or deltaglist | trim -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_WAREHOUSE_TAG') }}
+        {%- if addtaglist | trim %}
+ALTER WAREHOUSE {{ name(wh_name, size, is_snowpark) }}
+    SET TAG
+        {{ addtaglist }};
+        {%- endif -%}
+        {%- if deltaglist | trim %}
+ALTER WAREHOUSE {{ name(wh_name, size, is_snowpark) }}
+    UNSET TAG {{ deltaglist }};
+        {%- endif %}
+{{ support.restore_role('SAVE_ROLE_WAREHOUSE_TAG') }}
+    {%- endif -%}
+{%- endmacro %}
+
+{#-
+    This macro grants usage privileges on a Snowflake warehouse to a specified role.
+    It takes the warehouse name, size, whether it's a Snowpark warehouse,
+    and the role to which the privileges should be granted.
+
+    Preconditions:
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+        role - must be provided and not empty
+        isdbrole - if the role is a database role (optional, default false)
+
+    Returns:
+        SQL statement to grant usage on the specified warehouse to the specified role.
+
+    Raises:
+        An error if wh_name or role is not provided or is empty
+
+    Example Usage:
+        {{ warehouse.grant_usage('my_warehouse', 'SMALL', false, 'ANALYST_ROLE') }}
+
+    Example Returns:
+        GRANT USAGE ON WAREHOUSE DEV_MY_WAREHOUSE_S_WH TO ROLE ANALYST_ROLE;
+-#}
+{% macro grant_usage(wh_name, size='XSMALL', is_snowpark=false, role="", isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to warehouse.grant_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_GRANT') }}
+GRANT USAGE ON WAREHOUSE {{ name(wh_name, size, is_snowpark) }} TO {{ role }};
+{{ support.restore_role('SAVE_ROLE_GRANT') }}
+{%- endmacro %}
+
+{#-
+    This macro revokes usage privileges on a Snowflake warehouse from a specified role.
+    It takes the warehouse name, size, whether it's a Snowpark warehouse,
+    and the role from which the privileges should be revoked.
+
+    Preconditions:
+        wh_name - must be provided
+        size - must be a valid Snowflake warehouse size
+        is_snowpark - if this is a snowpark optimized warehouse (optional, default false)
+        role - must be provided and not empty
+        isdbrole - if the role is a database role (optional, default false)
+
+    Returns:
+        SQL statement to revoke usage on the specified warehouse from the specified role.
+
+    Raises:
+        An error if wh_name or role is not provided or is empty
+
+    Example Usage:
+        {{ warehouse.revoke_usage('my_warehouse', 'SMALL', false, 'ANALYST_ROLE') }}
+
+    Example Returns:
+        REVOKE USAGE ON WAREHOUSE DEV_MY_WAREHOUSE_S_WH FROM ROLE ANALYST_ROLE;
+-#}
+{% macro revoke_usage(wh_name, size='XSMALL', is_snowpark=false, role="", isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to warehouse.revoke_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_REVOKE') }}
+REVOKE USAGE ON WAREHOUSE {{ name(wh_name, size, is_snowpark) }} FROM {{ role }};
+{{ support.restore_role('SAVE_ROLE_REVOKE') }}
+{%- endmacro %}

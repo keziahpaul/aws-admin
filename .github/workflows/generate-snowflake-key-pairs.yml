@@ -1,0 +1,139 @@
+## The action file gets following input in the action #################################################################################################
+## 1. Account:      new options can be entered,
+##                  make sure they are no space or special characters, must easily be able to identify the snowflake Account
+## 2. Environment:  The standard environments dev, tst, prf, pst, prd.
+##                  These are such that they can be used as prefix for the respective generic user names in the respective snowflake environments, eg: dev_alation_user
+## To add a new account, please do following changes:
+## 1. Update inputs->account->options, add the account_name you want in the option section for account input
+## 2. Make an entry in the environment json variable "accountName" in the format "<option_added>-<environment>": "Accountname" seperated by comma . eg: ,"exchange-dev":"QN78122"
+##    Note: make sure the key part is always same as options for account, and environment Inputs seperated by hiphen '-'. Eg: "exchange-dev", since the input is cpmared to teh json variable
+##########################################################################################################################################################
+name: GENERATE SNOWFLAKE KEYS
+on:
+  workflow_dispatch:
+    inputs:
+
+      account:
+        type: choice
+        description: Select snowflake account
+        default: landinsights
+
+        options:
+        - sandbox
+        - exchange
+        - landinsights
+        - value-australia
+        - group
+        - group-azure
+        - px
+        - aml
+
+      environment:
+        type: choice
+        description: Select snowflake account
+        default: dev
+        options:
+        - dev
+        - tst
+        - pst
+        - perf
+        - prd
+
+      keypair_flag:
+        type: choice
+        description: Do you want generate snowflake Key pairs?
+        default: 'no'
+        options:
+        - 'yes'
+        - 'no'
+        - 'update'
+
+      serviceusers:
+        type: text
+        description: 'Enter list of service users separated by commas (e.g., "dbt,alation")'
+
+        default: 'dbt,github-admin,github,alation,tableau,sagemaker,ssa_dbt,glue,bigid'
+
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  accountName: '{"exchange-dev": "QN78122", "exchange-tst": "QN78122","exchange-pst": "ZZ82647", "exchange-prd": "ZZ82647"
+                  , "landinsights-dev" : "WY17498", "landinsights-tst" : "WY17498", "landinsights-pst" : "US08173", "landinsights-prd" : "US08173"
+                  , "value-australia-dev" : "HP89999", "value-australia-tst" : "HP89999", "value-australia-pst" : "VO84682", "value-australia-prd" : "VO84682"
+                  , "group-dev": "DJ58410",  "group-tst": "DJ58410", "group-pst": "JV60414", "group-prd": "JV60414", "sandbox-dev": "JU46907", "sandbox-tst": "JU46907"
+                  , "group-azure-dev": "EH91822", "group-azure-tst": "EH91822", "group-azure-pst": "EN45970", "group-azure-prd": "EN45970" 
+                  , "px-dev": "OW01050", "px-tst": "OW01050", "px-pst": "DN17764", "px-prd": "DN17764"
+                  , "aml-dev": "RK78474","aml-tst": "RK78474", "aml-pst": "OL48224", "aml-prd": "OL48224" }'
+  ROLE_TO_ASSUME: arn:aws:iam::004761221582:role/GitHubRunnerPEXAOneDataBuildRole
+  ECR_REPOSITORY: pexa-one-data-snowflake-au-common-lib
+  IMAGE: 004761221582.dkr.ecr.ap-southeast-2.amazonaws.com/pexa-one-data-snowflake-au-common-lib:latest_prod
+  dev_pdg_aws_account_number: '${{ vars.PDG_DEV_AWS_ACCOUNT_NUMBER }}'
+  tst_pdg_aws_account_number: '${{ vars.PDG_TST_AWS_ACCOUNT_NUMBER }}'
+  pst_pdg_aws_account_number: '${{ vars.PDG_PST_AWS_ACCOUNT_NUMBER }}'
+  prd_pdg_aws_account_number: '${{ vars.PDG_PRD_AWS_ACCOUNT_NUMBER }}'
+
+jobs:
+  get_Account_Name_Detail:
+    name: get Account Name based on Inputs
+    runs-on: [prod, deploy]
+    outputs:
+      run_rest_jobs: ${{ steps.get_Account_Name.outputs.run_rest_jobs }}
+      accName: ${{ steps.get_Account_Name.outputs.accName }}
+      deploy_environment: ${{ steps.get_Account_Name.outputs.deploy_environment }}
+      acc_input: ${{ steps.get_Account_Name.outputs.acc_input }}
+      env_input: ${{ steps.get_Account_Name.outputs.env_input }}
+      image: ${{ steps.get_Account_Name.outputs.image }}
+      aws_secret_account: ${{ steps.get_Account_Name.outputs.aws_secret_account }}
+      aws_logging_account: ${{  steps.get_Account_Name.outputs.aws_logging_account }}
+      aws_logging_aws_role: ${{  steps.get_Account_Name.outputs.aws_logging_aws_role }}
+      aws_logging_aws_kms_key: ${{  steps.get_Account_Name.outputs.aws_logging_aws_kms_key }}
+      in_aws_account_1: ${{ steps.get_Account_Name.outputs.in_aws_account_1 }}
+
+    steps:
+      - name: Checkout actions
+        uses: actions/checkout@v7
+
+      - name: Get Account Details
+        id: get_Account_Name
+        uses: ./.github/actions/getAccountDetails
+        with:
+          ACC_INPUT: ${{ github.event.inputs.account  }}
+          ENV_INPUT: ${{ github.event.inputs.environment  }}
+          ACCNAME: ${{ env.accountName }}
+          PROD_AWS_ACCOUNT: '${{ vars.PROD_PEXAONEDATA_AWS_ACCOUNT }}'
+          PROD_SECOPS_AWS_ACCOUNT: '${{ vars.PROD_SECOPS_AWS_ACCOUNT }}'
+          PROD_LOGGING_AWS_KMS_KEY: '${{ vars.PROD_LOGGING_KMS_KEY_ID }}'
+          PROD_LOGGING_AWS_ROLE: '${{ vars.PROD_AWS_IAM_ROLE_LOGGING }}'
+          NONPROD_LOGGING_AWS_KMS_KEY: '${{ vars.NONPROD_LOGGING_KMS_KEY_ID }}'
+          NONPROD_LOGGING_AWS_ROLE: '${{ vars.NONPROD_AWS_IAM_ROLE_LOGGING }}'
+          NONPROD_AWS_ACCOUNT: '${{ vars.NONPROD_PEXAONEDATA_AWS_ACCOUNT }}'
+          PDG_AWS_ACCOUNT_NUMBER: ${{ env[format('{0}_pdg_aws_account_number', github.event.inputs.environment )] }}
+
+
+  key-pair-generation:
+    if: needs.get_Account_Name_Detail.outputs.run_rest_jobs  == 'true'
+    name: key pair generation
+    runs-on: [prod, deploy]
+    needs: [get_Account_Name_Detail]
+    container:
+      image: ${{ needs.get_Account_Name_Detail.outputs.image }}
+    env:
+      aws_secret_account: ${{ needs.get_Account_Name_Detail.outputs.aws_secret_account }}
+    steps:
+      - name: Assume Role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ap-southeast-2
+          role-to-assume: arn:aws:iam::${{ env.aws_secret_account }}:role/GitHubRunnerPEXAOneDataRole
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Generate snowflake Keypairs
+        if: ${{ github.event.inputs.keypair_flag == 'yes' || github.event.inputs.keypair_flag == 'update' }}
+        run: python utils/generate_rsa_keys.py ${{github.event.inputs.environment}} ${{github.event.inputs.account}} ${{github.event.inputs.keypair_flag}} ${{github.event.inputs.serviceusers}}

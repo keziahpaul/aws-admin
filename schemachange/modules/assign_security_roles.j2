@@ -1,0 +1,16 @@
+{% macro assign_security_roles(in_sf_env) -%}
+{# in_sf_env is an environment prefix {{ in_sf_env }}#}
+use role securityadmin;
+{#  Update the PEXA corporate IPs network policy to the account #}
+alter account set network_policy = enabled_PEXA_AND_GIT_IPV4_network;
+
+{# assign network policies integration users #}
+
+ALTER USER {{ in_sf_env }}_ALATION_INTEGRATION_USER SET NETWORK_POLICY = enabled_alation_IPV4_network;
+ALTER USER {{ in_sf_env }}_DBT_INTEGRATION_USER SET NETWORK_POLICY = enabled_dbt_IPV4_network ;
+ALTER USER {{ in_sf_env }}_FIVETRAN_INTEGRATION_USER SET NETWORK_POLICY = enabled_fivetran_IPV4_network;
+ALTER USER {{ in_sf_env }}_SAGEMAKER_INTEGRATION_USER SET NETWORK_POLICY = enabled_sagemaker_IPV4_network;
+ALTER USER {{ in_sf_env }}_TABLEAU_INTEGRATION_USER SET NETWORK_POLICY = enabled_tableau_IPV4_network;
+ALTER USER {{ in_sf_env }}_BIGID_INTEGRATION_USER SET NETWORK_POLICY = enabled_bigid_IPV4_network;
+
+{%- endmacro %}

@@ -1,0 +1,48 @@
+{% macro create_warehouse(in_sf_env, in_sf_wh_nm,in_sf_wh_sz,in_sf_wh_cluster_cnt,in_sf_wh_suspend_tm, in_sf_wh_cmt) -%}
+
+{# create all integration users for different services #}
+{# in_sf_env is an environment prefix {{ in_sf_env }}#}
+{# in_sf_wh_nm is an actual warehouse that we need to create along with the size of it#}
+{# in_sf_wh_sz is an actual warehouse size#}
+{# in_sf_wh_cluster_cnt is an warehouse max cluster size#}
+{# in_sf_wh_suspend_tm is the time that a warehouse need to be suspended in seconds#}
+{# in_sf_wh_cmt is the description about warehouse#}
+
+use role sysadmin;
+
+{# create warehouse Roles #}
+
+create warehouse if not exists {{ in_sf_env }}_{{ in_sf_wh_nm}}_WH
+  warehouse_type =  standard , 
+  warehouse_size =  {{ in_sf_wh_sz }}  ,
+  max_cluster_count = {{ in_sf_wh_cluster_cnt }},
+  min_cluster_count = 1,
+  scaling_policy =  standard  ,
+  auto_suspend =  {{ in_sf_wh_suspend_tm }}  ,
+  auto_resume =  true  ,
+  initially_suspended =  true  ,
+  comment = '{{ in_sf_wh_cmt }}' ;
+
+{%- endmacro %}
+
+{% macro create_snowpark_warehouse(in_sf_env, in_sf_wh_nm, in_sf_wh_sz, in_sf_wh_cluster_cnt, in_sf_wh_suspend_tm, in_sf_wh_cmt) -%}
+{# in_sf_env is an environment prefix {{ in_sf_env }} -#}
+{# in_sf_wh_nm is an actual warehouse that we need to create along with the size of it -#}
+{# in_sf_wh_sz is an actual warehouse size -#}
+{# in_sf_wh_cluster_cnt is an warehouse max cluster size -#}
+{# in_sf_wh_suspend_tm is the time that a warehouse need to be suspended in seconds -#}
+{# in_sf_wh_cmt is the description about warehouse -#}
+
+use role sysadmin;
+create warehouse if not exists {{ in_sf_env }}_{{ in_sf_wh_nm}}_SP_WH
+  warehouse_type = 'SNOWPARK-OPTIMIZED'
+  warehouse_size = {{ in_sf_wh_sz }}
+  max_cluster_count = {{ in_sf_wh_cluster_cnt }}
+  min_cluster_count = 1
+  scaling_policy = standard
+  auto_suspend = {{ in_sf_wh_suspend_tm }}
+  auto_resume = true
+  initially_suspended = true
+  comment = '{{ in_sf_wh_cmt }}';
+
+{%- endmacro %}

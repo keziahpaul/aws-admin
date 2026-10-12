@@ -1,0 +1,34 @@
+{% macro create_database_schema(in_sf_env, in_db, in_schema, in_arp_level, in_wh) -%}
+
+{# -----------------------------------------comments------------------------------------------------------------------------------------ #}
+    {# in_sf_env is an environment prefix {{ in_sf_env }}#}
+    {# in_db is a database name {{ in_db }}#}
+    {# in_schema is a list of schema names {{ in_schema }}#}
+    {# in_arp_level is role access level - 'all' for the first name #}
+    {# in_wh is warehouse name #}
+
+{% if in_sf_env == "" %}
+    {% set db_name = in_db %}
+{% else %}
+    {% set db_name = in_sf_env + "_" + in_db %}
+{% endif %}
+
+{% if in_schema is string %}
+    {% set schema_list =  [ in_schema ] %}
+{% elif in_schema is iterable %}
+    {% set schema_list = in_schema  %}
+{% else %}
+    {% set schema_list = [ ] %}
+{% endif %}
+
+use role sysadmin;
+{# -----------------------------------------create database------------------------------------------------------------------------------------ #}
+    create database if not exists {{ db_name }};
+
+{# -----------------------------------------create schema(s)------------------------------------------------------------------------------------ #}
+    {% for current_schema in schema_list %}
+        create schema if not exists  {{ db_name }}.{{ current_schema }}  with managed access ;
+    {% endfor %}
+
+{% endmacro %}
+

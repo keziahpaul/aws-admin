@@ -1,0 +1,285 @@
+{% import 'modules/support.j2' as support with context -%}
+{#-
+    This file is part of the Schemachange project.
+    It provides macros for managing file formats in Snowflake.
+
+    Macros included:
+        - name: Returns the name of the file format based on the environment, database, schema, and purpose.
+        - legacy_name: Returns the legacy name of the file format based on the environment, database, schema, and purpose.
+        - create: Creates a new file format with the specified name, type, and comment.
+        - drop: Drops the specified file format if it exists.
+        - comment: Alters the comment on an existing file format.
+        - grant_usage: Grants usage on the specified file format to a role.
+        - revoke_usage: Revokes usage on the specified file format from a role.
+
+    Privileges required?:
+        CREATE FILE FORMAT
+        USAGE ON FILE FORMAT
+-#}
+
+{#-
+    Return the name of the file format based on the environment, database, schema, and purpose.
+    This macro is used to create a consistent naming convention for file formats across different environments.
+
+    Preconditions:
+        global var in_sf_env should be set to one of DEV, TST, PST, PRD
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name you want to give the file format, must be provided and not empty
+
+    Returns:
+        A string in the format of <in_sf_env>_<db>.<schema>.<purpose>_FILE_FORMAT, e.g., DEV_PROJECT.PART1.REPORT1_FILE_FORMAT
+
+    Raises:
+        An error if in_sf_env is not set or not one of DEV, TST, PST, PRD
+        An error if db, schema, or purpose is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.name('PROJECT', 'PART1', 'REPORT1') }}
+
+    Example Returns:
+        DEV_PROJECT.PART1.REPORT1_FILE_FORMAT
+-#}
+{% macro name(db, schema, purpose) -%}
+    {%- if not in_sf_env or in_sf_env | trim | upper not in ['DEV', 'TST', 'PST', 'PRD']  -%}
+        {{ support.raise("in_sf_env must be one of DEV, TST, PST, PRD") }}
+    {%- endif -%}
+    {%- if not db or db | trim == "" -%}
+        {{ support.raise("db must be provided to fileformat.name macro") }}
+    {%- endif -%}
+    {%- if not schema or schema | trim == "" -%}
+        {{ support.raise("schema must be provided to fileformat.name macro") }}
+    {%- endif -%}
+    {%- if not purpose or purpose | trim == "" -%}
+        {{ support.raise("purpose must be provided to fileformat.name macro") }}
+    {%- endif -%}
+    {{ in_sf_env | trim | upper }}_{{ db | trim | upper }}.{{ schema | trim | upper }}.{{ purpose | trim | upper }}_FILE_FORMAT
+{%- endmacro %}
+
+{#-
+    Return the legacy name of the file format based on the environment, database, schema, and purpose.
+    This macro is used to create a consistent naming convention for file formats across different environments.
+
+    Preconditions:
+        global var in_sf_env should be set to one of DEV, TST, PST, PRD
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name you want to give the file format, must be provided and not empty
+
+    Returns:
+        A string in the format of <in_sf_env>_<db>.<schema>.<in_sf_env>_<purpose>_FILE_FORMAT, e.g., DEV_PROJECT.PART1.DEV_REPORT1_FILE_FORMAT
+
+    Raises:
+        An error if in_sf_env is not set or not one of DEV, TST, PST, PRD
+        An error if db, schema, or purpose is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.name('PROJECT', 'PART1', 'REPORT1') }}
+
+    Example Returns:
+        DEV_PROJECT.PART1.DEV_REPORT1_FILE_FORMAT
+-#}
+{% macro legacy_name(db, schema, purpose) -%}
+    {%- if not in_sf_env or in_sf_env | trim | upper not in ['DEV', 'TST', 'PST', 'PRD']  -%}
+        {{ support.raise("in_sf_env must be one of DEV, TST, PST, PRD") }}
+    {%- endif -%}
+    {%- if not db or db | trim == "" -%}
+        {{ support.raise("db must be provided to fileformat.legacy_name macro") }}
+    {%- endif -%}
+    {%- if not schema or schema | trim == "" -%}
+        {{ support.raise("schema must be provided to fileformat.legacy_name macro") }}
+    {%- endif -%}
+    {%- if not purpose or purpose | trim == "" -%}
+        {{ support.raise("purpose must be provided to fileformat.legacy_name macro") }}
+    {%- endif -%}
+    {{ in_sf_env | trim | upper }}_{{ db | trim | upper }}.{{ schema | trim | upper }}.{{ in_sf_env | trim | upper }}_{{ purpose | trim | upper }}_FILE_FORMAT
+{%- endmacro %}
+
+{#-
+    Create a new file format in Snowflake with the specified type and comment.
+    This macro is used to create file formats for various data types such as CSV, JSON, and Parquet.
+    If you require a slightly different file format, you can ALTER the resultant file format
+    with local SQL.
+    ie.
+        {{ fileformat.create('PROJECT', 'PART1', 'REPORT1', 'CSV', 'This is a CSV file format') }}
+        ALTER FILE FORMAT {{ fileformat.name('PROJECT', 'PART1', 'REPORT1') }}
+            SET FIELD_DELIMITER = '|';
+
+    Preconditions:
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name you want to give the file format, must be provided and not empty
+        type - the type of the file format (e.g., CSV, JSON, PARQUET), must be provided and not empty
+        comment - an optional comment for the file format
+
+    Returns:
+        A SQL command to create a file format with the specified parameters.
+
+    Raises:
+        An error if db, schema, purpose, or type is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.create('PROJECT', 'PART1', 'REPORT1', 'CSV', 'This is a CSV file format') }}
+
+    Example Returns:
+        CREATE FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT TYPE = CSV
+        FIELD_DELIMITER = ','
+        FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+        SKIP_HEADER = 1
+        NULL_IF = ('NULL', 'null')
+        TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF9 TZHTZM'
+        COMMENT = $$This is a CSV file format$$;
+-#}
+{% macro create(db, schema, purpose, type, comment=none) -%}
+    {%- if not type or type | trim == "" -%}
+        {{ support.raise("type must be provided to fileformat.create macro") }}
+    {%- else -%}
+        {%- set type = type | trim | lower -%}
+    {%- endif -%}
+CREATE FILE FORMAT {{ name(db, schema, purpose) }} TYPE = {{ type }}
+    {%- if type == "CSV" %}
+    FIELD_DELIMITER = ','
+    FIELD_OPTIONALLY_ENCLOSED_BY = '"'
+    SKIP_HEADER = 1
+    NULL_IF = ('NULL', 'null')
+    TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF9 TZHTZM'
+    {%- elif type == "JSON" %}
+    STRIP_OUTER_ARRAY = TRUE
+    {%- elif type == "PARQUET" %}
+    COMPRESSION = 'AUTO'
+    {%- endif -%}
+    {%- if comment %}
+    COMMENT = {{ support.snowflake_safe_string(comment) }}
+    {%- endif -%}
+    ;
+{%- endmacro %}
+
+{#-
+    Drop the specified file format if it exists.
+    This macro is used to clean up file formats that are no longer needed.
+
+    Preconditions:
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name of the file format to drop, must be provided and not empty
+
+    Returns:
+        A SQL command to drop the specified file format if it exists.
+
+    Raises:
+        An error if db, schema, or purpose is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.drop('PROJECT', 'PART1', 'REPORT1') }}
+
+    Example Returns:
+        DROP FILE FORMAT IF EXISTS DEV_PROJECT.PART1.REPORT1_FILE_FORMAT;
+-#}
+{% macro drop(db, schema, purpose) -%}
+DROP FILE FORMAT IF EXISTS {{ name(db, schema, purpose) }};
+{%- endmacro %}
+
+{#-
+    Alter the comment on an existing file format.
+    This macro is used to update the comment for a file format, providing additional context or information.
+
+    Preconditions:
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name of the file format to alter, must be provided and not empty
+        comment - the new comment to set for the file format, must be provided and not empty
+
+    Returns:
+        A SQL command to alter the comment on the specified file format.
+
+    Raises:
+        An error if db, schema, or purpose is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.comment('PROJECT', 'PART1', 'REPORT1', 'This is an updated comment') }}
+
+    Example Returns:
+        ALTER FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT SET COMMENT = $$This is an updated comment$$;
+-#}
+{% macro comment(db, schema, purpose, comment) -%}
+ALTER FILE FORMAT {{ name(db, schema, purpose) }}
+    SET COMMENT = {{ support.snowflake_safe_string(comment) }};
+{%- endmacro %}
+
+{#-
+    Grant usage on the specified file format to a role.
+    This macro is used to allow a role to use the specified file format.
+
+    Preconditions:
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name of the file format to grant usage on, must be provided and not empty
+        role - the role to grant usage to, must be provided and not empty
+        isdbrole - boolean indicating if the role is a database role (optional, defaults to false)
+
+    Returns:
+        A SQL command to grant usage on the specified file format to the specified role.
+
+    Raises:
+        An error if db, schema, purpose, or role is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.grant_usage('PROJECT', 'PART1', 'REPORT1', 'ANALYST_ROLE') }}
+        {{ fileformat.grant_usage('PROJECT', 'PART1', 'REPORT1', 'ANALYST_ROLE', true) }}
+
+    Example Returns:
+        GRANT USAGE ON FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT TO ROLE ANALYST_ROLE;
+        GRANT USAGE ON FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT TO DATABASE ROLE ANALYST_ROLE;
+-#}
+{% macro grant_usage(db, schema, purpose, role, isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to fileformat.grant_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_GRANT') }}
+GRANT USAGE ON FILE FORMAT {{ name(db, schema, purpose) }} TO {{ role }};
+{{ support.restore_role('SAVE_ROLE_GRANT') }}
+{%- endmacro %}
+
+{#-
+    Revoke usage on the specified file format from a role.
+    This macro is used to remove a role's ability to use the specified file format.
+
+    Preconditions:
+        db - the database this file format lives in, must be provided and not empty
+        schema - the schema this file format lives in, must be provided and not empty
+        purpose - the name of the file format to revoke usage on, must be provided and not empty
+        role - the role to revoke usage from, must be provided and not empty
+        isdbrole - boolean indicating if the role is a database role (optional, defaults to false)
+
+    Returns:
+        A SQL command to revoke usage on the specified file format from the specified role.
+
+    Raises:
+        An error if db, schema, purpose, or role is not provided or is empty
+
+    Example Usage:
+        {{ fileformat.revoke_usage('PROJECT', 'PART1', 'REPORT1', 'ANALYST_ROLE') }}
+        {{ fileformat.revoke_usage('PROJECT', 'PART1', 'REPORT1', 'ANALYST_ROLE', true) }}
+
+    Example Returns:
+        REVOKE USAGE ON FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT FROM ROLE ANALYST_ROLE;
+        REVOKE USAGE ON FILE FORMAT DEV_PROJECT.PART1.REPORT1_FILE_FORMAT FROM DATABASE ROLE ANALYST_ROLE;
+-#}
+{% macro revoke_usage(db, schema, purpose, role, isdbrole=false) -%}
+    {%- if not role or role | trim == "" -%}
+        {{ support.raise("role must be provided to fileformat.revoke_usage macro") }}
+    {%- else -%}
+        {%- set role = "ROLE " + role | trim | upper -%}
+    {%- endif -%}
+    {%- if isdbrole -%}
+        {%- set role = "DATABASE " + role -%}
+    {%- endif -%}
+{{ support.use_role('SECURITYADMIN', 'SAVE_ROLE_REVOKE') }}
+REVOKE USAGE ON FILE FORMAT {{ name(db, schema, purpose) }} FROM {{ role }};
+{{ support.restore_role('SAVE_ROLE_REVOKE') }}
+{%- endmacro %}

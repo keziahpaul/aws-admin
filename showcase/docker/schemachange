@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# $1 - project dir
+# $2 - script to render
+PROJECT_DIR=$(realpath "${1:-.}")
+PROJECT_DIR=${PROJECT_DIR%%/}
+PROJECT_DIR="${PROJECT_DIR}/"
+SQL_FILE=$(realpath "${2:-./schemachange/scripts/V0.0.0__bootstrap.sql}")
+
+if [ ! -f "${PROJECT_DIR}/schemachange/config/schemachange-config.yml" ]; then
+  echo "${PROJECT_DIR}" does not appear to be a schemachange project
+  exit 1
+fi
+if [[ "${SQL_FILE}" != "${PROJECT_DIR}"* ]] || [[ ! -f "${SQL_FILE}" ]]; then
+  echo "${SQL_FILE}" does not appear to exist within the project
+  exit 2
+fi
+SQL_FILE=${SQL_FILE:${#PROJECT_DIR}}
+PROJECT_DIR=${PROJECT_DIR%%/}
+
+docker run -it --rm -v "${PROJECT_DIR}":/project schemachange:latest \
+schemachange render \
+  --config-folder schemachange/config \
+  -f schemachange/scripts \
+  -m schemachange/modules \
+  "${SQL_FILE}"
+

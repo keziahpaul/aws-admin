@@ -1,0 +1,40 @@
+name: 'SchemaChange Apply versions'
+description: |
+  Action for applying Schemachange the schemachange version to Snowflake
+
+inputs:
+  schemachange-folder:
+    description: 'Path to the local schemachange folder'
+    required: true
+
+  dry-run:
+    description: 'This should be a dry run of the changes. Default: true'
+    required: false
+    default: true
+
+env:
+  IMAGE: some-image:latest_prod
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Dry-Run the changes
+      if: ${{ inputs.dry-run == "true" }}
+      run: |
+        echo "test the changes"
+        
+        # echo '$SNOWFLAKE_PRIVATE_KEY' >> github_integration_user_private_key.p8
+        #   chmod 600 github_integration_user_private_key.p8
+        #   make common_dry_run SF_ENV=${{ env.ENV }}
+
+        #   make common_deploy SF_ENV=${{ env.ENV }}
+        # docker run --rm -it $IMAGE
+        #  SNOWFLAKE_PRIVATE_KEY_PATH:
+        #     SNOWFLAKE_PRIVATE_KEY,secret_path/snowflake-github-user-private-key
+        #     SNOWFLAKE_PRIVATE_KEY_PASSPHRASE,secret_path/snowflake-github-user-passphrase
+
+    - name: Apply the changes
+      if: ${{ inputs.dry-run == "false" }}
+      run: |
+        echo "actually make the change"

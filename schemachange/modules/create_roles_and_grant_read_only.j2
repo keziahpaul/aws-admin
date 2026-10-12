@@ -1,0 +1,51 @@
+{# Creates role and applies read only access to database and schemas.
+   Macro is for Account roles only, it cannot be used for Database roles.
+
+Params:
+    role_name string (required),
+    warehouse_name string (optional),
+    database_name string (optional),
+    schema_name string (optional)
+
+Usage:
+    call create_roles_and_grant_read_only('{{ in_sf_env }}_role', '{{ in_sf_env }}_wh', '{{ in_sf_env }}_db', 'schema');
+
+Future: if we need to get granular to table level - this macro will need to be extended
+#}
+
+{% macro create_roles_and_grant_read_only(role_name, warehouse_name='', database_name='', schema_name='') -%}
+
+    {# Create role if not exists #}
+    create role if not exists {{ role_name }};
+
+    {# Grant usage on warehouse #}
+    {%- if warehouse_name != '' %}
+        grant usage on warehouse {{ warehouse_name }} to role {{ role_name }};
+    {%- endif %}
+
+    {# Grant usage on database #}
+    {%- if database_name != '' %}
+        grant usage on database {{ database_name }} to role {{ role_name }};
+    {%- endif %}
+
+    {# Grant usage on schema #}
+    {%- if database_name != '' and schema_name != '' %}
+        grant usage on schema {{ database_name }}.{{ schema_name }} to role {{ role_name }};
+
+        {# Grant select and references on all tables in schema #}
+        grant select, references on all tables in schema {{ database_name }}.{{ schema_name }} to role {{ role_name }};
+
+        {# Grant select and references on future tables in schema #}
+        grant select, references on future tables in schema {{ database_name }}.{{ schema_name }} to role {{ role_name }};
+
+        {# Grant select and references on all views in schema #}
+        grant select, references on all views in schema {{ database_name }}.{{ schema_name }} to role {{ role_name }};
+
+        {# Grant select and references on future views in schema #}
+        grant select, references on future views in schema {{ database_name }}.{{ schema_name }} to role {{ role_name }};
+    {%- endif %}
+
+    {# Grant database role SNOWFLAKE.OBJECT_VIEWER #}
+    grant database role SNOWFLAKE.OBJECT_VIEWER to role {{ role_name }};
+
+{%- endmacro %}

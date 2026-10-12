@@ -1,0 +1,19 @@
+name: test python action
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  check_python:
+    name: Test this
+    runs-on: [prod, deploy]
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'  
+      - name: Test Python
+        run: python -c 'import sys; print(sys.version)'

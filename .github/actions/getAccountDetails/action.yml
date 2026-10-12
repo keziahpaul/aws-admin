@@ -1,0 +1,221 @@
+name: Get Common contents from snowflake common repo
+description: 'clone the common repo and fetch the modules version number based on the branch checked out from '
+inputs:
+  ACC_INPUT:
+    description: the account for deployment of schemachange scripts
+    required: true
+    default: sandbox
+
+  ENV_INPUT:
+    description: the environment for deployment of schemachange scripts
+    required: true
+    default: dev
+
+  ACCNAME:
+    description: the environment for deployment of schemachange scripts
+    required: true
+    default: '{"sandbox-dev": "JU46907"}'
+
+  PROD_AWS_ACCOUNT:
+    description: the AWS Account identifier for Prod one data account. Set as git environment variable
+    required: true
+
+  PROD_SECOPS_AWS_ACCOUNT:
+    description: the AWS Account identifier for Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  PROD_LOGGING_AWS_KMS_KEY:
+    description: the AWS s3 KMS key for Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  PROD_LOGGING_AWS_ROLE:
+    description: the AWS Account IAM Role for Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  NONPROD_LOGGING_AWS_KMS_KEY:
+    description: the AWS s3 KMS key for Non-Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  NONPROD_AWS_ACCOUNT:
+    description: the AWS Account identifier for Non-Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  NONPROD_LOGGING_AWS_ROLE:
+    description: the AWS Account IAM Role for Non-Prod account where logging files will be stored. Set as git environment variable
+    required: true
+
+  PDG_AWS_ACCOUNT_NUMBER:
+    description: the placeholder AWS account for VA and LI
+    required: false
+
+  EXCHANGE_CORE_AWS_ACCOUNT_NUMBER:
+    description: the placeholder AWS account no for exchange API logs
+    required: false
+
+  EXCHANGE_AWS_CORE_BUCKET:
+    description: the placeholder AWS s3 bucket for exchange API logs
+    required: false
+
+  PEXAKEY_RDS_NLP_NAME:
+    description: the placeholder RDS NLP name for PEXAKEY
+    required: false
+
+  STATEMENT_TIMEOUT_AT:
+    description: the statement timeout threshold value for EXCHANGE, GROUP, VALUE AUSTRALIA, LAND INSIGHT and SANDBOX_DEV
+    required: false
+
+
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: get Account Name based on Inputs
+      id: getAcctName
+      shell: bash
+      env:
+        ACC_INPUT: ${{ inputs.ACC_INPUT }}
+        ENV_INPUT: ${{ inputs.ENV_INPUT }}
+        ACCNAME: ${{ inputs.ACCNAME }}
+        PROD_AWS_ACCOUNT: '${{ inputs.PROD_AWS_ACCOUNT }}'
+        PROD_SECOPS_AWS_ACCOUNT: '${{ inputs.PROD_SECOPS_AWS_ACCOUNT }}'
+        PROD_LOGGING_AWS_KMS_KEY: '${{ inputs.PROD_LOGGING_AWS_KMS_KEY }}'
+        PROD_LOGGING_AWS_ROLE: '${{ inputs.PROD_LOGGING_AWS_ROLE }}'
+        NONPROD_LOGGING_AWS_KMS_KEY: '${{ inputs.NONPROD_LOGGING_AWS_KMS_KEY }}'
+        NONPROD_AWS_ACCOUNT: '${{ inputs.NONPROD_AWS_ACCOUNT }}'
+        NONPROD_LOGGING_AWS_ROLE: '${{ inputs.NONPROD_LOGGING_AWS_ROLE }}'
+        PDG_AWS_ACCOUNT_NUMBER: '${{ inputs.PDG_AWS_ACCOUNT_NUMBER }}'
+        EXCHANGE_CORE_AWS_ACCOUNT_NUMBER: '${{ inputs.EXCHANGE_CORE_AWS_ACCOUNT_NUMBER }}'
+        EXCHANGE_AWS_CORE_BUCKET: '${{ inputs.EXCHANGE_AWS_CORE_BUCKET }}'
+        PEXAKEY_RDS_NLP_NAME: '${{ inputs.PEXAKEY_RDS_NLP_NAME }}'
+        STATEMENT_TIMEOUT_AT: '${{ inputs.STATEMENT_TIMEOUT_AT }}'
+
+
+      run: |
+          ACC_INPUT=${{ env.ACC_INPUT}}
+          ENV_INPUT=${{ env.ENV_INPUT}}
+          echo "The account and environment chosen are  $ACC_INPUT and $ENV_INPUT "
+
+          #################### Pattern to check against teh account, and environment input variables to extract account Name ########################
+          pattern="$ACC_INPUT-$ENV_INPUT"
+
+          accName=$(echo '${{ env.ACCNAME }}' | jq --arg patterns $pattern -r '.[$patterns] // ""')
+
+          echo "accName=$accName" >> $GITHUB_OUTPUT
+
+
+          if [[ -z $accName ]] ; then
+            echo "The Process stopped since Environment not available for the Account, based on environment variable accountName "
+            run_rest_jobs=false
+          else
+            echo "Continue the execution for account Name:  $accName"
+            run_rest_jobs=true
+            deployEnvDev=`echo "dev,tst,uat,perf"| tr "," '\n'|grep -x "$ENV_INPUT"||echo ""`
+            echo "Deployment environment: $deployEnvDev "
+
+
+            if [[ -z $deployEnvDev ]]  ; then
+              echo 'deploying in prod'
+              deploy_environment='prod'
+              aws_secret_account=${{ env.PROD_AWS_ACCOUNT }}
+              aws_logging_account=${{ env.PROD_SECOPS_AWS_ACCOUNT }}
+              aws_logging_aws_role=${{ env.PROD_LOGGING_AWS_ROLE }}
+              aws_logging_aws_kms_key=${{ env.PROD_LOGGING_AWS_KMS_KEY }}
+            else
+              echo 'deploying in nonprod'
+              deploy_environment='nonprod'
+              aws_secret_account=${{ env.NONPROD_AWS_ACCOUNT }}
+              aws_logging_account=${{ env.NONPROD_AWS_ACCOUNT }}
+              aws_logging_aws_role=${{ env.NONPROD_LOGGING_AWS_ROLE }}
+              aws_logging_aws_kms_key=${{ env.NONPROD_LOGGING_AWS_KMS_KEY }}
+            fi
+            if [[ $ACC_INPUT == 'value-australia' || $ACC_INPUT == 'landinsights' ]]; then
+              in_aws_account_1='${{ env.PDG_AWS_ACCOUNT_NUMBER }}'
+              echo "PDG AWS Account number: $in_aws_account_1 "
+             elif [[ $ACC_INPUT == 'exchange' ]]; then
+              in_aws_account_1='${{ env.EXCHANGE_CORE_AWS_ACCOUNT_NUMBER }}'
+              echo "Exchange Core AWS Account number: $in_aws_account_1 "
+              in_aws_s3_bucket='${{ env.EXCHANGE_AWS_CORE_BUCKET }}'
+              echo "Exchange Core AWS s3 bucket: $in_aws_s3_bucket "
+            fi
+
+            if [[ $ACC_INPUT =~ 'group-azure' ]]; then
+              snowflake_acc_region='australia-east.azure'
+              echo "Snowflake account has been set to Azure region: $snowflake_acc_region"
+             else
+              snowflake_acc_region='ap-southeast-2'
+              echo "Snowflake account has been set to AWS region: $snowflake_acc_region"
+            fi
+
+            if [[ $ACC_INPUT == 'value-australia' || $ACC_INPUT == 'landinsights' || $ACC_INPUT == 'exchange' || $ACC_INPUT == 'group' || $ACC_INPUT == 'px' || $ACC_INPUT == 'sandbox' ]]; then
+              in_statement_timeout_at='${{ env.STATEMENT_TIMEOUT_AT }}'
+              echo "Statement Timeout Threshold for this account: $in_statement_timeout_at "
+            fi
+            if [[ -z "${in_statement_timeout_at}" ]]; then
+              in_statement_timeout_at='3600'
+              echo "Statement Timeout Threshold is currently not set for this account. Hence defaulting to 3600"
+            fi
+
+            echo "run_rest_jobs=$run_rest_jobs" >> $GITHUB_OUTPUT
+            echo "aws_secret_account=$aws_secret_account" >> $GITHUB_OUTPUT
+            echo "aws_logging_account=$aws_logging_account" >> $GITHUB_OUTPUT
+            echo "aws_logging_aws_role=$aws_logging_aws_role" >> $GITHUB_OUTPUT
+            echo "aws_logging_aws_kms_key=$aws_logging_aws_kms_key" >> $GITHUB_OUTPUT
+            echo "deploy_environment=$deploy_environment" >> $GITHUB_OUTPUT
+            echo "acc_input=$ACC_INPUT" >> $GITHUB_OUTPUT
+            echo "env_input=$ENV_INPUT" >> $GITHUB_OUTPUT
+            echo "image=${{ env.IMAGE }}" >> $GITHUB_OUTPUT
+            echo "in_aws_account_1=$in_aws_account_1" >> $GITHUB_OUTPUT
+            echo "in_aws_s3_bucket=$in_aws_s3_bucket" >> $GITHUB_OUTPUT
+            echo "snowflake_acc_region=$snowflake_acc_region" >> $GITHUB_OUTPUT
+            echo "in_pexakey_rds_nlp_name=${{ env.PEXAKEY_RDS_NLP_NAME }}" >> $GITHUB_OUTPUT
+            echo "in_statement_timeout_at=$in_statement_timeout_at" >> $GITHUB_OUTPUT
+          fi
+
+outputs:
+
+  run_rest_jobs:
+    description: "The value says that the deploy jobs need to run "
+    value: ${{ steps.getAcctName.outputs.run_rest_jobs }}
+  accName:
+    description: "Snowflake Account name for which the deploy would run"
+    value: ${{ steps.getAcctName.outputs.accName }}
+  deploy_environment:
+    description: "Snowflake Account environment for which the deploy would run"
+    value: ${{ steps.getAcctName.outputs.deploy_environment }}
+  acc_input:
+    description: "The value chosen in drop down Account"
+    value: ${{ steps.getAcctName.outputs.acc_input }}
+  env_input:
+    description: "The value chosen in drop down Environment"
+    value: ${{ steps.getAcctName.outputs.env_input }}
+  image:
+    description: "Snowlfkae docker image"
+    value: ${{ steps.getAcctName.outputs.image }}
+  aws_secret_account:
+    description: "AWS Account where secrets are stored"
+    value: ${{ steps.getAcctName.outputs.aws_secret_account }}
+  aws_logging_account:
+    description: "AWS Account where logging files will be stored"
+    value: ${{ steps.getAcctName.outputs.aws_logging_account }}
+  aws_logging_aws_role:
+    description: "AWS Account IAM role where logging files will be stored"
+    value: ${{ steps.getAcctName.outputs.aws_logging_aws_role }}
+  aws_logging_aws_kms_key:
+    description: "AWS Account S3 KMS Key role where logging files will be stored"
+    value: ${{ steps.getAcctName.outputs.aws_logging_aws_kms_key }}
+  in_aws_account_1:
+    description: "AWS Account placeholder, this can be used by other accounts to store any AWS account number in future, also if need arise to use more than one account numbers for same snowflake account we can add variables in_aws_account_<number eg:2/3/4.....> . At present represent PDG AWS Account number for VA snowflake account "
+    value: ${{ steps.getAcctName.outputs.in_aws_account_1 }}
+  in_aws_s3_bucket:
+    description: "AWS Account placeholder, this can be used by other accounts to store any AWS s3 bucket in future"
+    value: ${{ steps.getAcctName.outputs.in_aws_s3_bucket }}
+  snowflake_acc_region:
+    description: "Region for Snowflake account depends on weather it is an AWS or Azure based Account"
+    value: ${{ steps.getAcctName.outputs.snowflake_acc_region }}
+  in_pexakey_rds_nlp_name:
+    description: "RDS NLP name for PEXAKEY"
+    value: ${{ steps.getAcctName.outputs.in_pexakey_rds_nlp_name }}
+  in_statement_timeout_at:
+    description: "Account level statement timeout threshold value. Currently set for EXE, GRP, LI and VA. Can add for other environments as well if required."
+    value: ${{ steps.getAcctName.outputs.in_statement_timeout_at }}

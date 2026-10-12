@@ -1,0 +1,34 @@
+{
+  "accounts": {
+    "exchange": {
+      "nonprod_account_identifier": "QN78122.ap-southeast-2",
+      "prod_account_identifier": "ZZ82647.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    },
+    "group": {
+      "nonprod_account_identifier": "DJ58410.ap-southeast-2",
+      "prod_account_identifier": "JV60414.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    },
+    "landinsights": {
+      "nonprod_account_identifier": "WY17498.ap-southeast-2",
+      "prod_account_identifier": "US08173.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    },
+    "value-australia": {
+      "nonprod_account_identifier": "HP89999.ap-southeast-2",
+      "prod_account_identifier": "VO84682.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    },
+    "px": {
+      "nonprod_account_identifier": "OW01050.ap-southeast-2",
+      "prod_account_identifier": "DN17764.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    },
+    "aml": {
+      "nonprod_account_identifier": "RK78474.ap-southeast-2",
+      "prod_account_identifier": "OL48224.ap-southeast-2",
+      "integration_name": "OKTA_PROVISIONING"
+    }
+  }
+}

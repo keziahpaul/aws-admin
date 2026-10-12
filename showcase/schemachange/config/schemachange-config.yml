@@ -1,0 +1,6 @@
+config-version: 1
+
+root-folder: schemachange
+modules-folder: schemachange/modules
+vars:
+  in_sf_env: {{env_var('SF_ENV','DEV')}}

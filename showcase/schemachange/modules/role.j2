@@ -1,0 +1,291 @@
+{% import 'modules/support.j2' as support with context -%}
+
+{#-
+    This file is part of the Schemachange project.
+    It provides macros for managing roles in Snowflake.
+
+    Macros included:
+        - name: Generates a role name based on environment, rolename, and function
+        - create: Creates a new role with optional comment and tags
+        - drop: Drops an existing role if it exists
+        - use: Uses a specified role for the current session
+        - comment: Sets or unsets a comment on a role
+        - tag: Sets or unsets tags on a role
+        - grant_to_role: Grants usage of a schema to a role
+        - grant_to_user: Grants usage of a schema to a user
+        - revoke_from_role: Revokes usage of a schema from a role
+        - revoke_from_user: Revokes usage of a schema from a user
+
+    Privileges required?:
+        SYSADMIN
+        SECURITYADMIN
+-#}
+
+{#-
+    Generates a role name based on the provided parameters.
+    This macro constructs a role name using the environment, rolename, and function.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A" (admin), "F" (functional), or "S" (service).
+        in_sf_env - The environment must be one of DEV, TST, PST, PRD
+
+    Returns:
+        A string representing the role name in the format: ENV_ROLENAME_TYPE
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+        An error if in_sf_env is not one of DEV, TST, PST, PRD
+
+    Example Usage:
+        {{ role.name('DATABASE', 'A') }}
+        {{ role.name('ENGINEER', 'S') }}
+
+    Example Returns:
+        DEV_DATABASE_ADMIN
+        DEV_ENGINEER_INTEGRATION_ROLE_S
+-#}
+{% macro name(rolename, function) -%}
+    {%- if not rolename or rolename | trim == "" -%}
+        {{ support.raise("rolename must be provided to role.name macro") }}
+    {%- endif -%}
+    {%- if not function or function | trim | upper not in ["A", "F", "S"] -%}
+        {{ support.raise("function must be provided as one of 'A', 'F', or 'S' to role.name macro") }}
+    {%- else -%}
+        {%- set function = function | trim | upper -%}
+    {%- endif -%}
+    {%- if not in_sf_env or in_sf_env | trim | upper not in ['DEV', 'TST', 'PST', 'PRD']  -%}
+        {{ support.raise("in_sf_env must be one of DEV, TST, PST, PRD") }}
+    {%- endif -%}
+    {%- if function == "A" -%}
+        {% set type = "_ADMIN" %}
+    {%- elif function == "F" -%}
+        {% set type = "_F" %}
+    {%- elif function == "S" -%}
+        {% set type = "_INTEGRATION_ROLE_S" %}
+    {%- endif -%}
+    {{ in_sf_env | trim | upper }}_{{ rolename | trim | upper }}{{ type | trim | upper }}
+{%- endmacro %}
+
+{#-
+    Creates a new role with the specified name and function.
+    This macro allows for the creation of a role with optional comment and tags.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A" (admin), "F" (functional), or "S" (service).
+        comment - an optional comment for the role, if not provided, no comment is set
+        tags - a dictionary of {tag: value} to set on the role
+
+    Returns:
+        A SQL statement to create the role with the specified parameters.
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+        An error if tags is not a dictionary
+
+    Example Usage:
+        {{ role.create('DATABASE', 'A') }}
+        {{ role.create('ENGINEER', 'S', 'This is a test role') }}
+        {{ role.create('DBT', 'F', tags={'TEST_TAG':'Test Value'}) }}
+        {{ role.create('READER', 'A', 'This is a test role', {'TEST_TAG':'Test Value'}) }}
+
+    Example Returns:
+        CREATE ROLE DEV_DATABASE_ADMIN;
+        CREATE ROLE DEV_ENGINEER_INTEGRATION_ROLE_S COMMENT = $$This is a test schema$$;
+        CREATE ROLE DEV_DBT_F TAG (TEST_TAG = $$Test Value$$);
+        CREATE ROLE DEV_READER_ADMIN COMMENT = $$This is a test schema$$ TAG (TEST_TAG = $$Test Value$$);
+-#}
+{% macro create(rolename, function, comment=none, tags={}) -%}
+    {%- set function = function | upper -%}
+    {%- if function not in ["A", "F", "S"] -%}
+        {{ support.raise('function must be one of ["A", "F", "S"] for the role.create macro') }}
+    {%- endif -%}
+    {%- if tags and not tags is mapping -%}
+        {{ support.raise("tags must be provided as a dictionary to the role.create macro") }}
+    {%- endif -%}
+    {%- set role = name(rolename, function) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_ROLE_CREATE') }}
+CREATE ROLE {{ role }}
+    {%- if comment %}
+    COMMENT = {{ support.snowflake_safe_string(comment) }}
+    {%- endif -%}
+    {%- if tags -%}
+        {%- set taglist -%}
+            {{ support.tag_list(tags) }}
+        {%- endset -%}
+        {%- if taglist | trim %}
+    TAG (
+        {{ taglist }}
+        )
+        {%- endif -%}
+    {%- endif -%}
+    ;
+{{ support.restore_role('SAVE_ROLE_ROLE_CREATE') }}
+{%- endmacro %}
+
+{#-
+    Drops an existing role.
+    This macro allows for dropping a role if it exists.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A", "F", or "S"
+
+    Returns:
+        A SQL statement to drop the role if it exists.
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+
+    Example Usage:
+        {{ role.drop('DATABASE', 'A') }}
+        {{ role.drop('ENGINEER', 'F') }}
+
+    Example Returns:
+        DROP ROLE IF EXISTS DEV_DATABASE_ADMIN;
+        DROP ROLE IF EXISTS DEV_ENGINEER_F;
+-#}
+{% macro drop(rolename, function) -%}
+    {%- set role = name(rolename, function) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_ROLE_DROP') }}
+DROP ROLE IF EXISTS {{ role }};
+{{ support.restore_role('SAVE_ROLE_ROLE_DROP') }}
+{%- endmacro %}
+
+{#-
+    Uses a role for the current session.
+    This macro allows for switching to a specified role.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A", "F", or "S"
+
+    Returns:
+        A SQL statement to use the specified role.
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+
+    Example Usage:
+        {{ role.use('DATABASE', 'A') }}
+        {{ role.use('ENGINEER', 'F') }}
+
+    Example Returns:
+        USE ROLE DEV_DATABASE_ADMIN;
+        USE ROLE DEV_ENGINEER_F;
+-#}
+{% macro use(rolename, function) -%}
+    {%- set role = name(rolename, function) -%}
+USE ROLE {{ role }};
+{%- endmacro %}
+
+{#-
+    Sets or unsets a comment on a role.
+    This macro allows for setting or unsetting a comment on a role.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A", "F", or "S"
+        comment - an optional comment for the role, if not provided, no comment is set
+
+    Returns:
+        A SQL statement to set or unset the comment on the role.
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+
+    Example Usage:
+        {{ role.comment('DATABASE', 'A', 'This is a test role') }}
+        {{ role.comment('ENGINEER', 'F') }}
+
+    Example Returns:
+        ALTER ROLE DEV_DATABASE_ADMIN SET COMMENT = $$This is a test role$$;
+        ALTER ROLE DEV_ENGINEER_F UNSET COMMENT;
+-#}
+{% macro comment(rolename, function, comment=none) -%}
+    {%- set role = name(rolename, function) -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_ROLE_COMMENT') }}
+    {%- if comment %}
+ALTER ROLE {{ role }}
+    SET COMMENT = {{ support.snowflake_safe_string(comment) }};
+    {%- else %}
+ALTER ROLE {{ role }}
+    UNSET COMMENT;
+    {%- endif %}
+{{ support.restore_role('SAVE_ROLE_ROLE_COMMENT') }}
+{%- endmacro %}
+
+{#-
+    Sets or unsets tags on a role.
+    This macro allows for setting or unsetting tags on a role.
+
+    Preconditions:
+        rolename - The role name must be provided and cannot be empty
+        function - must be one of "A", "F", or "S"
+        tags - a dictionary of {tag: value} to set on the role, if not provided, no tags are set
+
+    Returns:
+        A SQL statement to set or unset the tags on the role.
+
+    Raises:
+        An error if either rolename or function is not provided or is empty
+        An error if function is not one of "A", "F", or "S"
+        An error if tags is not a dictionary
+
+    Example Usage:
+        {{ role.tag('DATABASE', 'A', {'TEST_TAG':'Test Value'}) }}
+        {{ role.tag('ENGINEER', 'F') }}
+
+    Example Returns:
+        ALTER ROLE DEV_DATABASE_ADMIN SET TAG TEST_TAG = $$Test Value$$;
+        ALTER ROLE DEV_ENGINEER_F UNSET TAG;
+-#}
+{% macro tag(rolename, function, tags={}) -%}
+    {%- if tags and not tags is mapping -%}
+        {{ support.raise("tags must be provided as a dictionary to the role.tag macro") }}
+    {%- endif -%}
+    {%- set role = name(rolename, function) -%}
+    {%- set addtaglist -%}
+        {{ support.tag_list(tags) }}
+    {%- endset -%}
+    {%- set deltaglist -%}
+        {{ support.tag_list(tags, false) }}
+    {%- endset -%}
+    {%- if addtaglist | trim or deltaglist | trim -%}
+{{ support.use_role('SYSADMIN', 'SAVE_ROLE_ROLE_TAG') }}
+        {%- if addtaglist | trim %}
+ALTER ROLE {{ role }}
+    SET TAG
+        {{ addtaglist }};
+        {%- endif -%}
+        {%- if deltaglist | trim %}
+ALTER ROLE {{ role }}
+    UNSET TAG {{ deltaglist }};
+        {%- endif %}
+{{ support.restore_role('SAVE_ROLE_ROLE_TAG') }}
+    {%- endif -%}
+{%- endmacro %}
+
+{#- TODO: Add support for role grants and revokes
+-#}
+{% macro grant_to_role(rolename, function, parent=none) -%}
+
+{%- endmacro %}
+
+{% macro grant_to_user(rolename, function, user=none) -%}
+
+{%- endmacro %}
+
+{% macro revoke_from_role(rolename, function, parent=none) -%}
+
+{%- endmacro %}
+
+{% macro revoke_from_user(rolename, function, user=none) -%}
+
+{%- endmacro %}

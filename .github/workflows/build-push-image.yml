@@ -1,0 +1,112 @@
+name: Build and Push Image
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - feature/DD-*
+    paths:
+      - .github/workflows/build-push-image.yml
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'version/docker-image-version.txt'
+      - 'requirements.txt'
+      - 'utils/**'
+      - 'tests/**'
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  ROLE_TO_ASSUME: arn:aws:iam::004761221582:role/GitHubRunnerPEXAOneDataBuildRole
+  ECR_REPOSITORY: pexa-one-data-snowflake-au-common-lib
+  IMAGE_NAME: pexa-one-data-snowflake-common-image-prd
+
+jobs:
+  build:
+    name: Build, Test and Push Image
+    runs-on: [build]
+    env:
+      GITHUB_ACTIONS_ID: ${{ github.run_id }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Assume Role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ap-southeast-2
+          role-to-assume: ${{ env.ROLE_TO_ASSUME }}
+          role-duration-seconds: 3600
+          role-skip-session-tagging: true
+          mask-aws-account-id: false
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: 'true'
+
+      - name: Generate New Version
+        id: get-version
+        uses: PEXA-AU/github-action-auto-semver@2.0.8
+        with:
+          base-version-file: ./version/docker-image-version.txt
+
+      - name: Build Image
+        id: build-image
+        env:
+          git_ref: ${{ github.ref }}
+        shell: bash
+        run: |
+          # Build Docker Image
+          if [[ ${{ env.git_ref }} == 'refs/heads/main' ]]; then
+            echo 'main'
+            env_tag=latest_prod
+          elif [[ ${{ env.git_ref }} == 'refs/heads/feature/DD-'* ]]; then
+            echo 'feature'
+            env_tag=latest_dev
+          fi
+
+          IMAGE_ECR_REPO=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          export IMAGE=${IMAGE_ECR_REPO}:${{ steps.get-version.outputs.version }}
+          docker build --no-cache -t ${IMAGE} .
+          docker run --rm -v .:/tmp/check ${IMAGE} bash -c "cd /tmp/check && python3 -m pytest tests/ -v"
+          IMAGE_ID=$(docker images --filter=reference=${IMAGE}* --quiet)
+          docker tag ${IMAGE_ID} ${IMAGE_ECR_REPO}:${env_tag}
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo ${IMAGE}
+          echo ${IMAGE_ID}
+          echo "image_id=${IMAGE_ID}" >> $GITHUB_OUTPUT
+          echo "image_name=${IMAGE_ECR_REPO}" >> $GITHUB_OUTPUT
+
+      - name: Scan Image
+        id: scan
+        uses: PEXA-AU/pipa-scan-action@v4.2.1
+        with:
+          image-id: ${{ steps.build-image.outputs.image_id }}
+          twistlock-username: ${{ secrets.TWISTLOCK_USERNAME }}
+          twistlock-password: ${{ secrets.TWISTLOCK_PASSWORD }}
+          twistlock-console-url: ${{ secrets.CONSOLE_URL }}
+
+      - name: Push Image
+        shell: bash
+        run: |
+          # Push Docker Image
+          echo "Pushing image to ECR..."
+          docker push ${{ steps.build-image.outputs.image_name }} --all-tags
+
+      - name: Build Summary
+        shell: bash
+        run: |
+          echo "Successfully rebuilt the container." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ${{ steps.build-image.outputs.image }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup repo
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          echo "Cleaning up local temp files..."
+          docker run --rm -v .:/tmp/check python:3.12-slim-trixie bash -c "rm -rf /tmp/check/*/__pycache__" || true

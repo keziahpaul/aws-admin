@@ -1,0 +1,406 @@
+
+{% macro create_access_roles_privileges(in_sf_env, in_db, in_schema, in_arp_level, in_wh) -%}
+{# in_sf_env is an environment prefix {{ in_sf_env }}#}
+{# in_db is a database name {{ in_db }}#}
+{# in_schema is schema name {{ in_schema }}#}
+{# in_arp_level is role access level - 'all' for the first name #}
+{# in_wh is warehouse name #}
+
+{% set warehouse     = in_sf_env + "_" + in_wh %}
+{% set db_name       = in_sf_env + "_" + in_db %}
+{% set fq_schema     = db_name + "." + in_schema %}
+{% set db_writer_a_role = db_name + "." + "WRITER_DBROLE_A" %}
+{% set db_master_reader_a_role   = db_name + "." + "MASTER_READER_DBROLE_A" %}
+{% set db_reader_a_role = db_name + "." + "READER_DBROLE_A" %}
+{% set db_masked_share_role = db_name + "." + "PI_MASKED_DATASHARE_DBROLE" %}
+{% set db_public_share_role = db_name + "." + "PI_PUBLIC_DATASHARE_DBROLE" %}
+{% set dbt_role = in_sf_env+"_dbt_integration_role_s" %}
+{% set fivetran_role = in_sf_env+"_FIVETRAN_INTEGRATION_ROLE_S" %}
+{% set ssa_dbt_role = in_sf_env+"_ssa_dbt_integration_role_s" %}
+
+
+use role SYSADMIN;
+
+{# Create role #}
+create database role if not exists {{ db_writer_a_role }};
+create database role if not exists {{ db_master_reader_a_role }};
+create database role if not exists {{ db_reader_a_role }};
+
+{# Create DB masked and unmasked roles in all layers #}
+create database role if not exists {{ db_masked_share_role }};
+create database role if not exists {{ db_public_share_role }};
+
+
+
+grant database role      {{ db_writer_a_role }}              to role     SYSADMIN;
+grant database role      {{ db_master_reader_a_role }}       to role     SYSADMIN;
+grant database role      {{ db_reader_a_role }}              to role     SYSADMIN;
+
+
+{% if ((db_name).lower().endswith('_logging') or (db_name).lower().endswith('_governance_db'))%}
+{% set security_flag     = 1 %}
+{% else %}
+{% set security_flag     = 0 %}
+{% endif %}
+
+
+use role securityadmin;
+{# ---------------------------------------------------------WRITER_DBROLE_A role - privileges------------------------------------------------------ #}
+{% if (in_arp_level.lower() == 'sfull') or (in_arp_level.lower() == 'all') %}
+
+        grant database role      {{ db_writer_a_role }}       to role     {{ dbt_role }};
+        grant create schema      on database {{db_name}}      to role     {{ dbt_role }};
+
+        {# ----------grant writer access to fivetran only on logging--------- #}
+        {% if (db_name).lower().endswith('_logging') %}
+        grant database role      {{ db_writer_a_role }}       to role     {{ fivetran_role }};
+        grant create schema      on database {{db_name}}        to role     {{ fivetran_role }};
+        {% endif %}
+
+    {% if security_flag == 0 %}
+        {# ----------grant writer access role to other roles--------- #}
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_DATABASE_ADMIN;
+
+
+        {# ----------grant writer access to fivetran only on raw--------- #}
+        {% if (db_name).lower().endswith('_raw') %}
+        grant database role      {{ db_writer_a_role }}       to role     {{ fivetran_role }};
+        grant create schema      on database {{db_name}}        to role     {{ fivetran_role }};
+        {% endif %}
+
+        {# ----------grant writer access to engineer & support role in dev environment--------- #}
+        {% if (in_sf_env).lower() == 'dev' %}
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_ENGINEER_F;
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+        {% endif %}
+            
+        {# ----------grant writer access to support role in tst and pst environments--------- #}
+        {% if (in_sf_env).lower() in ('tst', 'pst')%}
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+        {% endif %}
+
+        {# ----------grant reader role on sandbox---------these grants are handled seprately in different module #}
+    {#    {% if (db_name).lower().endswith('_sandbox')%}
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_DI_ANALYST_F;
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_TABLEAU_INTEGRATION_ROLE_S;
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_ENGINEER_F;
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_DI_ANALYST_PUBLIC_F;
+        grant database role      {{ db_writer_a_role }}       to role     {{ in_sf_env }}_DATA_SCIENTIST_PUBLIC_F;
+
+        {% endif %} 
+    #}
+    {% endif %}
+
+   
+    
+    {# ----------grants on current & future objects to DBT role in all layer -------------------- #}
+        {{ grant_access(db_writer_a_role, db_name, fq_schema, 'write', 'future', 'sysadmin', dbt_role, fivetran_role,ssa_dbt_role) }}
+        {{ grant_access(db_writer_a_role, db_name, fq_schema, 'write', 'all', 'sysadmin', dbt_role, fivetran_role,ssa_dbt_role) }}
+        
+
+   
+
+{% endif %}
+
+
+{# ---------------------------------------------------------READER_DBROLE_A role - privileges-------------------------------------------------------------- #}
+{% if (in_arp_level.lower() == 'srw') or (in_arp_level.lower() == 'all') %}
+
+    {# ----------grant reader role to master reader role--------- #}
+            grant database role       {{ db_reader_a_role }}        to database role         {{ db_master_reader_a_role }};
+            grant database role      {{ db_reader_a_role }}         to role         {{ in_sf_env }}_DATA_GOVERNANCE_SPECIALIST_F;
+            
+
+    {% if security_flag == 0 %}
+        {# ----------grant reader role to other roles on all layers raw, stage, surate , dataservices and analytics--------- #}
+            grant database role      {{ db_reader_a_role }}         to role         {{ in_sf_env }}_ANALYST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_alation_integration_role_s;
+            {% if ('valueaustralia' in (db_name).lower()   ) %}
+                grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_glue_integration_role_s;
+            {% endif %}
+            
+            {% if ('exchange' not in (db_name).lower()   ) %}
+            {#----The two new roles present in below grants will not be created in Exchange account and hence excluding --#}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_DI_ANALYST_PUBLIC_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_DATA_SCIENTIST_PUBLIC_F;
+            
+            {% elif ('exchange'  in (db_name).lower()   )%}
+            {#--granting previously executed grant for the else part to avoid the failure --#}
+
+            grant database role      {{ db_reader_a_role }}         to role         {{ in_sf_env }}_ANALYST_F;
+            
+            {% endif %}
+
+            
+        
+
+        {# ----------grant reader role on stage--------- #}
+            {% if (db_name).lower().endswith('_stage') %}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SCIENTIST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SAGEMAKER_INTEGRATION_ROLE_S;
+            {% endif %}
+
+        {# ----------grant reader role on curate--------- #}
+            {% if (db_name).lower().endswith('_curate') %}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_DI_ANALYST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SCIENTIST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SAGEMAKER_INTEGRATION_ROLE_S;
+            {% endif %}
+
+        {# ----------grant reader role on dataservices--------- #}
+            {% if (db_name).lower().endswith('_dataservices') %}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SCIENTIST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_SAGEMAKER_INTEGRATION_ROLE_S;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_CENSUS_INTEGRATION_ROLE_S;
+           
+            {% endif %}
+
+        {# ----------grant reader role on analytics--------- #}
+            {% if (db_name).lower().endswith('_analytics')%}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_DI_ANALYST_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_DATA_STEWARD_F;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_CENSUS_INTEGRATION_ROLE_S;
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_TABLEAU_INTEGRATION_ROLE_S;
+            {% endif %} 
+        
+        {# ----------grant reader role to Tableau on Px_common_data_layer, px_dataservices--------- #}
+            {% if (db_name).lower().endswith('_px_common_data_layer') or (db_name).lower().endswith('_px_dataservices')%}
+            grant database role      {{ db_reader_a_role }}       to role     {{ in_sf_env }}_TABLEAU_INTEGRATION_ROLE_S;
+            {% endif %} 
+
+     {% endif %}           
+        {# ----------grants on current & future objects --------- #}
+            {{ grant_access(db_reader_a_role, db_name, fq_schema, 'read', 'future') }}
+            {{ grant_access(db_reader_a_role, db_name, fq_schema, 'read', 'all') }}
+            
+
+
+{% endif %}
+
+{# ---------------------------------------------------------MASTER_READER_DBROLE_A role - privileges-------------------------------------------------------------- #}
+{% if (in_arp_level.lower() == 'sr') or (in_arp_level.lower() == 'all') %}
+    
+    {% if security_flag == 1 %}        
+        {% if (in_sf_env).lower() in ('dev') %}
+            grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_ENGINEER_F;
+            grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+        {% endif %}
+    {% else %}
+        {# ----------grant master reader role to engineer in tst and pst environments--------- #}
+            {% if (in_sf_env).lower() in ('tst','pst') %}
+            grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_ENGINEER_F;
+            {% endif %}
+            
+            {# ----------grant master reader role to support in prod environment--------- #}
+            {# ----------grant master reader role to engineer except raw layer in prod environment--------- #}
+            {% if (in_sf_env).lower() in ('prd') %}
+                {% if (db_name).lower().endswith('_raw') %}
+                    revoke database role     {{ db_master_reader_a_role }}       from role   {{ in_sf_env }}_ENGINEER_F;
+                    grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+                {% else %}
+                    grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_ENGINEER_F;
+                    grant database role      {{ db_master_reader_a_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+                {% endif %}
+            {% endif %}
+
+    {% endif %}
+        {# ----------grant  on current & future objects --------- #}
+            {{ grant_access(db_master_reader_a_role, db_name, fq_schema, 'master_read', 'future') }}
+            {{ grant_access(db_master_reader_a_role, db_name, fq_schema, 'master_read', 'all') }}
+            
+
+{% endif %}
+
+
+
+{% endmacro %}
+
+{% macro grant_access(in_to_role, in_db, in_schema, in_type, in_when, in_owner_role, dbt_role, fivetran_role, ssa_dbt_role) %}
+{# in_to_role is a role to grant access to #}
+{# in_db is a database name #}
+{# in_schema is schema name #}
+{# in_type is 'write', 'read', 'master_read' #}
+{# in_when is 'all' or 'future' #}
+
+{% if (in_type.lower() in [ 'master_read', 'write', 'read']) and (in_when.lower() in [ 'all', 'future' ]) %}
+    use role SECURITYADMIN;
+
+    {# Set role grants #}
+    {% if in_type.lower() == 'write' %}
+
+
+        revoke ownership                        on {{ in_when }} tables             in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} views              in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} streams            in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} functions          in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} stages             in schema {{ in_schema }} from database role {{ in_to_role }};
+        revoke ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} from database role {{ in_to_role }};
+
+        revoke ownership                        on {{ in_when }} tables             in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} views              in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} streams            in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} functions          in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} stages             in schema {{ in_schema }} from role {{ in_owner_role }};
+        revoke ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} from role {{ in_owner_role }};
+  
+        {% if in_schema.lower().endswith("logging.dbt_logs") %}
+
+        
+        revoke ownership                        on {{ in_when }} tables             in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} views              in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} streams            in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} functions          in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} stages             in schema {{ in_schema }} from role {{ dbt_role }};
+        revoke ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} from role {{ dbt_role }};
+        {% if in_when.lower() == 'future'  %}
+        
+        grant ownership                        on                                     schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        {% endif %}
+        grant ownership                        on {{ in_when }} tables             in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} views              in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;    
+        grant ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} streams            in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} functions          in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} stages             in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} to role {{ dbt_role }} revoke current grants;
+        
+        {% elif in_schema.lower().endswith("logging.fivetran_logs") %}
+
+        
+        revoke ownership                        on {{ in_when }} tables             in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} views              in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} streams            in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} functions          in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} stages             in schema {{ in_schema }} from role {{ fivetran_role }};
+        revoke ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} from role {{ fivetran_role }};
+        
+        {% if in_when.lower() == 'future'  %}
+        
+
+        grant ownership                        on                                     schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        {% endif %}
+        grant ownership                        on {{ in_when }} tables             in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} views              in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;    
+        grant ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} streams            in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} functions          in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} stages             in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} to role {{ fivetran_role }} revoke current grants;
+
+        {% elif in_db.lower().endswith("selfservice_analytics") %}
+
+        
+        revoke ownership                        on {{ in_when }} tables             in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} views              in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} streams            in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} functions          in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} stages             in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        revoke ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} from role {{ ssa_dbt_role }};
+        
+        {% if in_when.lower() == 'future'  %}
+        
+
+        grant ownership                        on                                     schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        {% endif %}
+        grant ownership                        on {{ in_when }} tables             in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} views              in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;    
+        grant ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} streams            in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} functions          in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} stages             in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} to role {{ ssa_dbt_role }} revoke current grants;
+ 
+
+        {% else %}
+
+        grant ownership                        on {{ in_when }} tables             in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} external tables    in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} views              in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} materialized views in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;    
+        grant ownership                        on {{ in_when }} file formats       in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} streams            in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} procedures         in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} functions          in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} sequences          in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} stages             in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+        grant ownership                        on {{ in_when }} tasks              in schema {{ in_schema }} to role {{ in_owner_role }} revoke current grants;
+
+        {% endif %}
+        grant all privileges                        on               schema                       {{ in_schema }} to database role {{ in_to_role }} ;
+        grant all privileges                        on {{ in_when }} tables             in schema {{ in_schema }} to database role {{ in_to_role }} ;
+        grant all privileges                        on {{ in_when }} external tables    in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} views              in schema {{ in_schema }} to database role {{ in_to_role }} ;
+        grant all privileges                        on {{ in_when }} materialized views in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} file formats       in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} streams            in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} procedures         in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} functions          in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} sequences          in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} stages             in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant all privileges                        on {{ in_when }} tasks              in schema {{ in_schema }} to database role {{ in_to_role }};
+
+
+    {% endif %}
+
+    {% if in_type.lower() == 'read' %}
+        grant usage                            on database                                    {{ in_db }}     to database role {{ in_to_role }};
+        grant usage                            on schema                                     {{ in_schema }} to database role {{ in_to_role }};
+        grant select, references               on {{ in_when }} tables             in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant select, references               on {{ in_when }} external tables    in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant select, references               on {{ in_when }} views              in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant select, references               on {{ in_when }} materialized views in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant usage                            on {{ in_when }} procedures         in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant usage                            on {{ in_when }} functions          in schema {{ in_schema }} to database role {{ in_to_role }};
+
+    {% endif %}
+
+    {% if in_type.lower() == 'master_read' %}
+        grant usage, read                      on {{ in_when }} stages             in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant usage                            on {{ in_when }} file formats       in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant select                           on {{ in_when }} streams            in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant usage                            on {{ in_when }} sequences          in schema {{ in_schema }} to database role {{ in_to_role }};
+        grant monitor, operate                 on {{ in_when }} tasks              in schema {{ in_schema }} to database role {{ in_to_role }};
+
+    {% endif %}
+
+    
+
+{% endif %}
+{% endmacro %}

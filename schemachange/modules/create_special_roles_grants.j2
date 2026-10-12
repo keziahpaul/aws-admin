@@ -1,0 +1,205 @@
+{% macro create_special_roles_grants(in_sf_acc_name, in_sf_env, db_name, db_schema) -%}
+{# in_sf_acc_name is an snowflake account name populated from drop down value#}
+{# in_sf_env is an environment prefix {{ in_sf_env }}#}
+{# db_name is a database name {{ db_name }}#}
+{# db_schema is schema name {{ db_schema }}#}
+
+
+{% if ((in_sf_acc_name).lower() != 'exchange') %}
+
+{% set db_name           = in_sf_env + "_" + db_name %}
+{% set db_schema         = db_name +"."+ db_schema %}
+{% set de_db_writer_role = db_name + "." + "DE_SANDBOX_WRITER_DBROLE_A" %}
+{% set de_db_reader_role = db_name + "." + "DE_SANDBOX_READER_DBROLE_A" %}
+{% set di_db_writer_role = db_name + "." + "DI_SANDBOX_WRITER_DBROLE_A" %}
+{% set di_db_reader_role = db_name + "." + "DI_SANDBOX_READER_DBROLE_A" %}
+{% set ds_db_writer_role = db_name + "." + "DS_SANDBOX_WRITER_DBROLE_A" %}
+{% set ds_db_reader_role = db_name + "." + "DS_SANDBOX_READER_DBROLE_A" %}
+
+use role SYSADMIN;
+
+
+
+{# Create role #}
+create database role if not exists {{ de_db_writer_role }};
+create database role if not exists {{ de_db_reader_role }};
+create database role if not exists {{ di_db_writer_role }};
+create database role if not exists {{ di_db_reader_role }};
+create database role if not exists {{ ds_db_writer_role }};
+create database role if not exists {{ ds_db_reader_role }};
+
+{% if db_schema.lower().endswith('de_sandbox') %}
+{# added role to execute DB role grants #}
+
+use role SECURITYADMIN;
+
+
+
+{# writer role grants #}
+
+revoke ownership                        on future tables             in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on future views              in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on future materialized views in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on future procedures         in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on future functions          in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on future sequences          in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+{# writer role to #}
+
+grant database role      {{ de_db_writer_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+
+grant ownership                        on                              schema {{ db_schema }} to  role {{ in_sf_env }}_support_f revoke current grants;
+grant                                                                  create schema on database {{db_name}} to  role {{ in_sf_env }}_support_f;
+grant ownership                        on future tables             in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on future views              in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on future materialized views in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;    
+grant ownership                        on future procedures         in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on future functions          in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on future sequences          in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+
+revoke ownership                        on all tables             in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on all views              in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on all materialized views in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on all procedures         in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on all functions          in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+revoke ownership                        on all sequences          in schema {{ db_schema }} from database role {{ de_db_writer_role }};
+
+grant ownership                        on all tables             in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on all views              in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on all materialized views in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;    
+grant ownership                        on all procedures         in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on all functions          in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+grant ownership                        on all sequences          in schema {{ db_schema }} to database role {{ de_db_writer_role }} revoke current grants;
+
+grant all privileges                        on               schema                       {{ db_schema }} to database role {{ de_db_writer_role }} ;
+grant all privileges                        on all tables             in schema {{ db_schema }} to database role {{ de_db_writer_role }} ;
+grant all privileges                        on all views              in schema {{ db_schema }} to database role {{ de_db_writer_role }} ;
+grant all privileges                        on all materialized views in schema {{ db_schema }} to database role {{ de_db_writer_role }};
+grant all privileges                        on all procedures         in schema {{ db_schema }} to database role {{ de_db_writer_role }};
+grant all privileges                        on all functions          in schema {{ db_schema }} to database role {{ de_db_writer_role }};
+grant all privileges                        on all sequences          in schema {{ db_schema }} to database role {{ de_db_writer_role }};
+
+{# reader role grants #}
+        grant usage                            on database                                    {{ db_name }}     to database role {{ de_db_reader_role }};
+        grant usage                            on schema                                     {{ db_schema }} to database role {{ de_db_reader_role }};
+        grant select, references               on all tables             in schema {{ db_schema }} to database role {{ de_db_reader_role }};
+        grant select, references               on all views              in schema {{ db_schema }} to database role {{ de_db_reader_role }};
+        grant select, references               on all materialized views in schema {{ db_schema }} to database role {{ de_db_reader_role }};
+        grant usage                            on all procedures         in schema {{ db_schema }} to database role {{ de_db_reader_role }};
+        grant usage                            on all functions          in schema {{ db_schema }} to database role {{ de_db_reader_role }};
+
+{% elif db_schema.lower().endswith( 'di_sandbox') %}
+
+{# writer role to #}
+
+grant database role      {{ di_db_writer_role }}       to role     {{ in_sf_env }}_DI_ANALYST_PUBLIC_F;
+grant database role      {{ di_db_writer_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+
+{# writer role grants #}
+revoke ownership                        on future tables             in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                        on future views              in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                        on future materialized views in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                        on future procedures         in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                        on future functions          in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                        on future sequences          in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+
+grant ownership                        on                              schema {{ db_schema }} to  role {{ in_sf_env }}_di_analyst_public_f revoke current grants;
+grant                                                                  create schema on database {{db_name}} to  role {{ in_sf_env }}_di_analyst_public_f;
+grant ownership                        on future tables             in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on future views              in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on future materialized views in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;    
+grant ownership                        on future procedures         in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on future functions          in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on future sequences          in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+
+revoke ownership                       on all tables             in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                       on all views              in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                       on all materialized views in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                       on all procedures         in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                       on all functions          in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+revoke ownership                       on all sequences          in schema {{ db_schema }} from database role {{ di_db_writer_role }};
+
+grant ownership                        on all tables             in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on all views              in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on all materialized views in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;    
+grant ownership                        on all procedures         in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on all functions          in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+grant ownership                        on all sequences          in schema {{ db_schema }} to database role {{ di_db_writer_role }} revoke current grants;
+
+grant all privileges                        on               schema             {{ db_schema }} to database role {{ di_db_writer_role }} ;
+grant all privileges                        on all tables             in schema {{ db_schema }} to database role {{ di_db_writer_role }} ;
+grant all privileges                        on all views              in schema {{ db_schema }} to database role {{ di_db_writer_role }} ;
+grant all privileges                        on all materialized views in schema {{ db_schema }} to database role {{ di_db_writer_role }};
+grant all privileges                        on all procedures         in schema {{ db_schema }} to database role {{ di_db_writer_role }};
+grant all privileges                        on all functions          in schema {{ db_schema }} to database role {{ di_db_writer_role }};
+grant all privileges                        on all sequences          in schema {{ db_schema }} to database role {{ di_db_writer_role }};
+
+{# reader role grants #}
+        grant usage                            on database                                   {{ db_name }}     to database role {{ di_db_reader_role }};
+        grant usage                            on schema                                     {{ db_schema }} to database role {{ di_db_reader_role }};
+        grant select, references               on all tables             in schema {{ db_schema }} to database role {{ di_db_reader_role }};
+        grant select, references               on all views              in schema {{ db_schema }} to database role {{ di_db_reader_role }};
+        grant select, references               on all materialized views in schema {{ db_schema }} to database role {{ di_db_reader_role }};
+        grant usage                            on all procedures         in schema {{ db_schema }} to database role {{ di_db_reader_role }};
+        grant usage                            on all functions          in schema {{ db_schema }} to database role {{ di_db_reader_role }};
+
+{% elif db_schema.lower().endswith('ds_sandbox') %}
+
+{# writer role to #}
+
+grant database role      {{ ds_db_writer_role }}       to role     {{ in_sf_env }}_DATA_SCIENTIST_PUBLIC_F;
+grant database role      {{ ds_db_writer_role }}       to role     {{ in_sf_env }}_SUPPORT_F;
+
+
+{# writer role grants #}
+revoke ownership                        on future tables             in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on future views              in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on future materialized views in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on future procedures         in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on future functions          in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on future sequences          in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+
+
+grant ownership                        on                              schema {{ db_schema }} to  role {{ in_sf_env }}_data_scientist_public_f revoke current grants;
+grant                                                                  create schema on database {{db_name}} to  role {{ in_sf_env }}_data_scientist_public_f;
+grant ownership                        on future tables             in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on future views              in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on future materialized views in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;    
+grant ownership                        on future procedures         in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on future functions          in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on future sequences          in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+
+revoke ownership                        on all tables             in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on all views              in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on all materialized views in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on all procedures         in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on all functions          in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+revoke ownership                        on all sequences          in schema {{ db_schema }} from database role {{ ds_db_writer_role }};
+
+grant ownership                        on all tables             in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on all views              in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on all materialized views in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;    
+grant ownership                        on all procedures         in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on all functions          in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+grant ownership                        on all sequences          in schema {{ db_schema }} to database role {{ ds_db_writer_role }} revoke current grants;
+
+grant all privileges                        on               schema             {{ db_schema }} to database role {{ ds_db_writer_role }} ;
+grant all privileges                        on all tables             in schema {{ db_schema }} to database role {{ ds_db_writer_role }} ;
+grant all privileges                        on all views              in schema {{ db_schema }} to database role {{ ds_db_writer_role }} ;
+grant all privileges                        on all materialized views in schema {{ db_schema }} to database role {{ ds_db_writer_role }};
+grant all privileges                        on all procedures         in schema {{ db_schema }} to database role {{ ds_db_writer_role }};
+grant all privileges                        on all functions          in schema {{ db_schema }} to database role {{ ds_db_writer_role }};
+grant all privileges                        on all sequences          in schema {{ db_schema }} to database role {{ ds_db_writer_role }};
+
+{# reader role grants #}
+        grant usage                            on database                                   {{ db_name }}     to database role {{ ds_db_reader_role }};
+        grant usage                            on schema                                     {{ db_schema }} to database role {{ ds_db_reader_role }};
+        grant select, references               on all tables             in schema {{ db_schema }} to database role {{ ds_db_reader_role }};
+        grant select, references               on all views              in schema {{ db_schema }} to database role {{ ds_db_reader_role }};
+        grant select, references               on all materialized views in schema {{ db_schema }} to database role {{ ds_db_reader_role }};
+        grant usage                            on all procedures         in schema {{ db_schema }} to database role {{ ds_db_reader_role }};
+        grant usage                            on all functions          in schema {{ db_schema }} to database role {{ ds_db_reader_role }};
+    {% endif %}
+
+{% endif %}
+
+{% endmacro %}
