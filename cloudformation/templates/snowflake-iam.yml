@@ -1,0 +1,93 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Snowflake IAM role and policy for Egress API-S3 bucket access"
+
+Parameters:
+  ApiS3BucketName:
+    Type: String
+    Description: "Name of the S3 bucket to be accessed by the OneDataSnowflakeIAMRole"
+  ApiS3BucketKMSKeyID:
+    Type: String
+    Description: "KMS Key identifier used for encryption of the S3 bucket objects"
+  SnowflakePrincipalArn:
+    Type: String
+    Description: "Snowflake Account ID"
+  SnowflakeExternalId:
+    Type: String
+    Description: "Snowflake External ID"
+  Environment:
+    Type: String
+    Description: "Environment name"
+  ExchangeS3BucketName:
+    Type: String
+    Description: "Name of the Exchange S3 bucket to be accessed by the OneDataSnowflakeIAMRole"
+  SnowflakeExternalIdExchange:
+    Type: String
+    Description: "Identifier for Snowflake integration"
+  ArchiveS3BucketName:
+    Type: String
+    Description: "Name of the Archive S3 bucket to be accessed by the OneDataSnowflakeIAMRole"
+
+Resources:
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-onedata-snowflake-coreegress-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              AWS: !Ref SnowflakePrincipalArn
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                sts:ExternalId: [
+                  !Ref SnowflakeExternalId,
+                  !Ref SnowflakeExternalIdExchange
+                ]
+      Path: "/"
+      Policies:
+        - 
+            PolicyName: "onedata-snowflake-coreegress-role-s3-access-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource: [
+                  !Sub "arn:aws:s3:::${ApiS3BucketName}",
+                  !Sub "arn:aws:s3:::${ApiS3BucketName}/*",
+                  !Sub "arn:aws:s3:::${ExchangeS3BucketName}",
+                  !Sub "arn:aws:s3:::${ExchangeS3BucketName}/*",
+                  !Sub "arn:aws:s3:::${ArchiveS3BucketName}",
+                  !Sub "arn:aws:s3:::${ArchiveS3BucketName}/*"
+                ]
+        -
+            PolicyName: "onedata-snowflake-coreegress-role-kms-access-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                Resource: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/${ApiS3BucketKMSKeyID}"
+        -
+            PolicyName: "onedata-snowflake-coreegress-role-kms-access-policy-exchange"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                Resource:
+                  - !Sub arn:aws:kms:ap-southeast-2:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringLike:
+                    "kms:ResourceAliases": !Sub "alias/onedata-exchange-kms-${AWS::AccountId}-${Environment}"

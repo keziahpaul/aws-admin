@@ -1,0 +1,757 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  DMS Serverless Task for Full and CDC Load in Digital Account 
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+  MinDCU:
+    Type: Number
+  MaxDCU:
+    Type: Number
+  DMSSubnetGroup:
+    Type: String
+  DMSKMS:
+    Type: String
+
+Resources:
+  OnedataProjectsDMSServerlessfullcdc:
+    Type: AWS::DMS::ReplicationConfig
+    Properties:
+      ComputeConfig: 
+        MultiAZ: true
+        MinCapacityUnits: !Ref MinDCU
+        MaxCapacityUnits: !Ref MaxDCU
+        PreferredMaintenanceWindow: Sun:11:00-Sun:13:00
+        ReplicationSubnetGroupId: 
+          Fn::ImportValue:
+            Fn::Sub: 'onedata-projects-resources-digital-DMS-components-${Environment}:OnedataProjectsDMSReplicationSubnetGroup'
+        VpcSecurityGroupIds: 
+          - Fn::ImportValue: !Sub 'onedata-projects-resources-digital-DMS-components-${Environment}:OnedataProjectsDMSSecurityGroup'
+        KmsKeyId: !Sub "arn:aws:kms:ap-southeast-2:${AWS::AccountId}:key/${DMSKMS}"
+      ReplicationConfigIdentifier: !Sub "${Environment}-onedata-projects-serverless-full-cdc"
+      ReplicationType: "full-load-and-cdc"
+      ReplicationSettings:
+        Logging:
+          EnableLogging: "true"
+        TargetMetadata:
+          LobMaxSize: 16384
+        FullLoadSettings:
+          MaxFullLoadSubTasks: 24
+          TargetTablePrepMode: "DO_NOTHING"
+      ResourceIdentifier: !Sub "${Environment}-onedata-projects-serverless-full-cdc"
+      SourceEndpointArn: !Sub "arn:aws:dms:ap-southeast-2:${AWS::AccountId}:endpoint:onedata-projects-src-db-${Environment}"
+      TargetEndpointArn: !Sub "arn:aws:dms:ap-southeast-2:${AWS::AccountId}:endpoint:onedata-projects-tgt-s3-${Environment}"
+      TableMappings:
+        rules:
+          - rule-type: selection
+            rule-action: include
+            rule-id: '1'
+            rule-name: 'api_usage_audit'
+            object-locator:
+              schema-name: public
+              table-name: api_usage_audit
+            filters: []
+          - rule-type: transformation
+            rule-id: '2'
+            rule-name: 'api_usage_audit_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: api_usage_audit
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '3'
+            rule-name: 'authority'
+            object-locator:
+              schema-name: public
+              table-name: authority
+            filters: []        
+          - rule-type: transformation
+            rule-id: '4'
+            rule-name: 'authority_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: authority
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '5'
+            rule-name: 'batch_job'
+            object-locator:
+              schema-name: public
+              table-name: batch_job
+            filters: []        
+          - rule-type: transformation
+            rule-id: '6'
+            rule-name: 'batch_job_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_job
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50       
+          - rule-type: selection
+            rule-action: include
+            rule-id: '7'
+            rule-name: 'batch_job_execution'
+            object-locator:
+              schema-name: public
+              table-name: batch_job_execution
+            filters: []        
+          - rule-type: transformation
+            rule-id: '8'
+            rule-name: 'batch_job_execution_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_job_execution
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50              
+          - rule-type: selection
+            rule-action: include
+            rule-id: '9'
+            rule-name: 'batch_job_execution_context'
+            object-locator:
+              schema-name: public
+              table-name: batch_job_execution_context
+            filters: []        
+          - rule-type: transformation
+            rule-id: '10'
+            rule-name: 'batch_job_execution_context_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_job_execution_context
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '11'
+            rule-name: 'batch_job_instance'
+            object-locator:
+              schema-name: public
+              table-name: batch_job_instance
+            filters: []        
+          - rule-type: transformation
+            rule-id: '12'
+            rule-name: 'batch_job_instance_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_job_instance
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '13'
+            rule-name: 'batch_lock'
+            object-locator:
+              schema-name: public
+              table-name: batch_lock
+            filters: []        
+          - rule-type: transformation
+            rule-id: '14'
+            rule-name: 'batch_lock_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_lock
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '15'
+            rule-name: 'batch_report_item'
+            object-locator:
+              schema-name: public
+              table-name: batch_report_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '16'
+            rule-name: 'batch_report_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_report_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '17'
+            rule-name: 'batch_step_execution'
+            object-locator:
+              schema-name: public
+              table-name: batch_step_execution
+            filters: []
+          - rule-type: transformation
+            rule-id: '18'
+            rule-name: 'batch_step_execution_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_step_execution
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '19'
+            rule-name: 'batch_step_execution_context'
+            object-locator:
+              schema-name: public
+              table-name: batch_step_execution_context
+            filters: []        
+          - rule-type: transformation
+            rule-id: '20'
+            rule-name: 'batch_step_execution_context_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: batch_step_execution_context
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '21'
+            rule-name: 'common_data_change_job_item'
+            object-locator:
+              schema-name: public
+              table-name: common_data_change_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '22'
+            rule-name: 'common_data_change_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: common_data_change_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50       
+          - rule-type: selection
+            rule-action: include
+            rule-id: '23'
+            rule-name: 'configuration'
+            object-locator:
+              schema-name: public
+              table-name: configuration
+            filters: []        
+          - rule-type: transformation
+            rule-id: '24'
+            rule-name: 'configuration_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: configuration
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50              
+          - rule-type: selection
+            rule-action: include
+            rule-id: '25'
+            rule-name: 'data_change_alert'
+            object-locator:
+              schema-name: public
+              table-name: data_change_alert
+            filters: []        
+          - rule-type: transformation
+            rule-id: '26'
+            rule-name: 'data_change_alert_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: data_change_alert
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '27'
+            rule-name: 'document_job_item'
+            object-locator:
+              schema-name: public
+              table-name: document_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '28'
+            rule-name: 'document_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: document_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '29'
+            rule-name: 'financials_job_item'
+            object-locator:
+              schema-name: public
+              table-name: financials_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '30'
+            rule-name: 'financials_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: financials_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '31'
+            rule-name: 'financial_accounts_audit'
+            object-locator:
+              schema-name: public
+              table-name: financial_accounts_audit
+            filters: []        
+          - rule-type: transformation
+            rule-id: '32'
+            rule-name: 'financial_accounts_audit_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: financial_accounts_audit
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '33'
+            rule-name: 'invitation_job_item'
+            object-locator:
+              schema-name: public
+              table-name: invitation_job_item
+            filters: []
+          - rule-type: transformation
+            rule-id: '34'
+            rule-name: 'invitation_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: invitation_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '35'
+            rule-name: 'mot_project'
+            object-locator:
+              schema-name: public
+              table-name: mot_project
+            filters: []        
+          - rule-type: transformation
+            rule-id: '36'
+            rule-name: 'mot_project_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: mot_project
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '37'
+            rule-name: 'pd_user'
+            object-locator:
+              schema-name: public
+              table-name: pd_user
+            filters: []        
+          - rule-type: transformation
+            rule-id: '38'
+            rule-name: 'pd_user_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: pd_user
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50       
+          - rule-type: selection
+            rule-action: include
+            rule-id: '39'
+            rule-name: 'pd_user_authorised'
+            object-locator:
+              schema-name: public
+              table-name: pd_user_authorised
+            filters: []        
+          - rule-type: transformation
+            rule-id: '40'
+            rule-name: 'pd_user_authorised_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: pd_user_authorised
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50              
+          - rule-type: selection
+            rule-action: include
+            rule-id: '41'
+            rule-name: 'project'
+            object-locator:
+              schema-name: public
+              table-name: project
+            filters: []        
+          - rule-type: transformation
+            rule-id: '42'
+            rule-name: 'project_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: project
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '43'
+            rule-name: 'report_audit'
+            object-locator:
+              schema-name: public
+              table-name: report_audit
+            filters: []        
+          - rule-type: transformation
+            rule-id: '44'
+            rule-name: 'report_audit_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: report_audit
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '45'
+            rule-name: 'settlement_job_item'
+            object-locator:
+              schema-name: public
+              table-name: settlement_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '46'
+            rule-name: 'settlement_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: settlement_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '47'
+            rule-name: 'subscriber_to_tnc'
+            object-locator:
+              schema-name: public
+              table-name: subscriber_to_tnc
+            filters: []        
+          - rule-type: transformation
+            rule-id: '48'
+            rule-name: 'subscriber_to_tnc_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: subscriber_to_tnc
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '49'
+            rule-name: 'terms_and_conditions'
+            object-locator:
+              schema-name: public
+              table-name: terms_and_conditions
+            filters: []
+          - rule-type: transformation
+            rule-id: '50'
+            rule-name: 'terms_and_conditions_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: terms_and_conditions
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '51'
+            rule-name: 'togglz'
+            object-locator:
+              schema-name: public
+              table-name: togglz
+            filters: []        
+          - rule-type: transformation
+            rule-id: '52'
+            rule-name: 'togglz_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: togglz
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '53'
+            rule-name: 'transfer_job_item'
+            object-locator:
+              schema-name: public
+              table-name: transfer_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '54'
+            rule-name: 'transfer_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: transfer_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50       
+          - rule-type: selection
+            rule-action: include
+            rule-id: '55'
+            rule-name: 'upload_file'
+            object-locator:
+              schema-name: public
+              table-name: upload_file
+            filters: []        
+          - rule-type: transformation
+            rule-id: '56'
+            rule-name: 'upload_file_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: upload_file
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50              
+          - rule-type: selection
+            rule-action: include
+            rule-id: '57'
+            rule-name: 'upload_job_item'
+            object-locator:
+              schema-name: public
+              table-name: upload_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '58'
+            rule-name: 'upload_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: upload_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '59'
+            rule-name: 'upload_job_items'
+            object-locator:
+              schema-name: public
+              table-name: upload_job_items
+            filters: []        
+          - rule-type: transformation
+            rule-id: '60'
+            rule-name: 'upload_job_items_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: upload_job_items
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '61'
+            rule-name: 'user_authorities'
+            object-locator:
+              schema-name: public
+              table-name: user_authorities
+            filters: []        
+          - rule-type: transformation
+            rule-id: '62'
+            rule-name: 'user_authorities_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: user_authorities
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50 
+          - rule-type: selection
+            rule-action: include
+            rule-id: '63'
+            rule-name: 'workspace'
+            object-locator:
+              schema-name: public
+              table-name: workspace
+            filters: []        
+          - rule-type: transformation
+            rule-id: '64'
+            rule-name: 'workspace_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: workspace
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+          - rule-type: selection
+            rule-action: include
+            rule-id: '65'
+            rule-name: 'workspace_update_parent_title_job_item'
+            object-locator:
+              schema-name: public
+              table-name: workspace_update_parent_title_job_item
+            filters: []        
+          - rule-type: transformation
+            rule-id: '66'
+            rule-name: 'workspace_update_parent_title_job_item_trn_seq'
+            rule-target: column
+            object-locator:
+              schema-name: public
+              table-name: workspace_update_parent_title_job_item
+            rule-action: add-column
+            value: 'transact_id'
+            expression: '$AR_H_CHANGE_SEQ'
+            data-type:
+              type: string
+              length: 50
+
+      Tags: 
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+Outputs:
+  OnedataProjectsDMSServerlessfullcdcARN:
+    Description: DMS Serverless full-cdc Onedata-Projects ARN
+    Value: !Ref OnedataProjectsDMSServerlessfullcdc
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataProjectsDMSServerlessfullcdcARN

@@ -1,0 +1,94 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Data Flow between PEXA and Salesforce, template to create Ingress flows from Salesforce to AppFlow
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Specify the environment from the allowed values, configured via the PARAMETER FILE
+  KMSArn:
+    Type: String
+    Description: The ARN (Amazon Resource Name) of the Key Management Service (KMS) key you provide for encryption, configured via the PARAMETER FILE
+  ConnectorProfile:
+    Type: String
+    Description: Name of the source connection created as part of the connector deployment. Note- this will need to change if a new connector is created, configured via the PARAMETER FILE
+  IngressBucketName:
+    Type: String
+    Description: Name of the bucket to ingress flows, configured via the PARAMETER FILE
+  IngressBucketPrefix:
+    Type: String
+    Description: Name of the bucket to ingress flows, configured via the PARAMETER FILE
+  FlowStartTimeSchedule1:
+    Type: String
+    Description: Specify the start time of the flows; schedule 1 applies to Ingress flows only. Note- Schedule Date+Time needs to be converted to Unix Time Stamp and should be a future event
+  ScheduleExpression:
+    Type: String
+    Description: The scheduling expression that determines the rate at which the schedule will run
+  DatetimeTypeFieldName:
+    Type: String
+    Description: Specify the audit column to identify incremental data
+  FileType:
+    Type: String
+    Description: Specify the audit column to identify incremental data
+  Object:
+    Type: String
+    Description: Specify the salesforce object to sync
+
+
+# Any data coming in to PEXA from Salesforce is classified as Ingress
+Resources:
+  SalesforcetoS3ContactFlow:   #Ingress Data Flow 1
+    Type: AWS::AppFlow::Flow
+    Properties:
+      Description: "Contact Object Ingress from Salesforce"
+      DestinationFlowConfigList:
+      - ConnectorType: S3
+        DestinationConnectorProperties:
+          S3:
+            BucketName: !Ref IngressBucketName
+            BucketPrefix: !Ref IngressBucketPrefix
+            S3OutputFormatConfig:
+              AggregationConfig:
+                  AggregationType: SingleFile
+              FileType: !Sub ${FileType}
+              PrefixConfig:
+                  PrefixFormat: MINUTE
+                  PrefixType: PATH_AND_FILENAME
+      FlowName: !Sub "onedata_salesforce_data_ingress_${Object}_${Environment}"
+      KMSArn: 
+        Fn::ImportValue: !Ref KMSArn
+      SourceFlowConfig:
+        ConnectorProfileName: !Ref ConnectorProfile
+        ConnectorType: Salesforce
+        SourceConnectorProperties:
+          Salesforce:
+            EnableDynamicFieldUpdate: true
+            IncludeDeletedRecords: true
+            Object: !Sub ${Object}
+        IncrementalPullConfig:
+          DatetimeTypeFieldName: !Sub ${DatetimeTypeFieldName}
+      Tags:
+        - Key: Domain
+          Value: Data
+        - Key: Project
+          Value: Salesforce
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Flowtype
+          Value: Ingress
+      Tasks:
+        - TaskType: Map_all
+          SourceFields: []
+          TaskProperties:
+          - Key: EXCLUDE_SOURCE_FIELDS_LIST
+            Value: '[]'
+          ConnectorOperator:
+            Salesforce: NO_OP
+      TriggerConfig:
+        TriggerType: Scheduled
+        TriggerProperties:
+          ScheduleStartTime: !Ref FlowStartTimeSchedule1 # Schedule Date+Time needs to be converted to Unix Time Stamp and should be a future event
+          DataPullMode: Incremental
+          ScheduleExpression: !Ref ScheduleExpression
+          ScheduleOffset: 300
+          TimeZone: "UTC"

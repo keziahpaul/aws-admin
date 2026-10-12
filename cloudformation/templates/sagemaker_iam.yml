@@ -1,0 +1,67 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "SageMaker IAM role and policy for SecretsPolicy:"
+
+Parameters:
+  CFStackName:
+    Type: String
+  SageMakerPrincipalArn:
+    Type: String
+    Description: "SageMaker AWS Account ID from where the SageMakerPrincipalArn is being assumed."
+
+
+Resources:
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${CFStackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              AWS: !Ref SageMakerPrincipalArn
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        -
+            PolicyName: !Sub "${CFStackName}-secrets-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource: [
+                  !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:onedata*",
+                ]
+        -
+            PolicyName: !Sub "${CFStackName}-sagemaker-secrets-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "secretsmanager:GetSecretValue"
+                Resource: [
+                  !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:onedata*sagemaker-user-passphrase",
+                  !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:onedata*sagemaker-user-private-key"
+                ]
+                Condition:
+                  StringLike:
+                    aws:userid: "sagemaker-studio-execution-role*"
+        -
+            PolicyName: !Sub "${CFStackName}-kms-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                  - "kms:DescribeKey"
+                Resource: [
+                  !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*",
+                  !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}::alias/*"
+                ]

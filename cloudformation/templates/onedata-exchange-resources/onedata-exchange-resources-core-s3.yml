@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  S3 Bucket in Core Account as destination for DMS
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+
+Resources:
+
+  OnedataExchangeS3:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub onedata-exchange-${AWS::AccountId}-${Environment}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt OnedataExchangeKMSKey.Arn
+            BucketKeyEnabled: true
+
+  OnedataExchangeBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref OnedataExchangeS3
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${OnedataExchangeS3}'
+              - !Sub 'arn:aws:s3:::${OnedataExchangeS3}/*'
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-snowflake-coreegress-role'
+
+
+
+  OnedataExchangeKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for Exchange S3 Bucket
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable access Snowflake role
+            Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+              - kms:DeleteAlias
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-snowflake-coreegress-role'
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerOneDataDeployRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+
+  OnedataExchangeKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/onedata-exchange-kms-${AWS::AccountId}-${Environment}
+      TargetKeyId: !Ref OnedataExchangeKMSKey
+
+
+
+
+
+
+Outputs:
+  OnedataExchangeBucketName:
+    Description: S3 bucket name
+    Value: !Ref OnedataExchangeS3
+    Export:
+      Name: !Sub "${AWS::StackName}:onedata-exchange-bucket-name"
+  ExchangeKMSKeyId:
+    Value: !Ref OnedataExchangeKMSKey
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-exchange-kms-key-id
+  ExchangeKMSKeyAlias:
+    Value: !Ref OnedataExchangeKMSKeyAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-exchange-kms-key-alias
+  ExchangeKMSKeyArn:
+    Value: !GetAtt OnedataExchangeKMSKey.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-exchange-kms-key-arn

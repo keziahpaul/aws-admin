@@ -1,0 +1,372 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  pexa-one-data-aws-admin
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  DigitalAccount:
+    Type: String
+  GatewayAccount:
+    Type: String
+
+Resources:
+  
+  
+  DynamoDBExportToS3LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onedata-pexakey-lambda-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: custom-role
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sts:AssumeRole
+                Resource: 
+                  - !Sub "arn:aws:iam::${DigitalAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}"
+                  - !Sub "arn:aws:iam::${GatewayAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}"
+              
+              - Effect: Allow
+                Action:
+                  - dynamodb:ExportTableToPointInTime
+                Resource: 
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/ms-api-property-settlement-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/ms-api-property-store-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/ms-api-bank-account-store-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/${Environment}-sot-ms-api-bank-account-store"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/${Environment}-sot-ms-api-property-store"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${GatewayAccount}:table/web-app-registration-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${DigitalAccount}:table/${Environment}-sot-web-app-registration"
+
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:CreateLogGroup
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onedata-pexakey*${Environment}*"
+
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObjectAcl
+                  - s3:List*
+                  - s3:GetObject
+                Resource: 
+                  - !Sub "arn:aws:s3:::onedata-pexakey-${AWS::AccountId}-${Environment}/*"  
+                  - !Sub "arn:aws:s3:::onedata-pexakey-${AWS::AccountId}-${Environment}"  
+  
+  DynamoDBExportToS3StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "onedata-pexakey-stepfunction-role-${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: "*"
+              
+              
+
+
+  onedataPexaKeyDynamodbExportCpToStaging:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub onedata-pexakey-dynamodb-export-cp-to-staging-${Environment}
+      Description: 'the Function copies the file to snowflake staging area after the dynamodb export is complete'
+      Role: !GetAtt DynamoDBExportToS3LambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          s3 = boto3.resource('s3')
+          s3_client = boto3.client('s3')
+          import os
+          import logging
+          logger = logging.getLogger()
+
+          def lambda_handler(event, context):
+              print(event) 
+              arn=event['arn']
+              bucket= event['s3_bucket']
+              prefix=event['s3_prefix']
+              
+              ###### test data
+              # arn='arn:aws:dynamodb:ap-southeast-2:570723136177:table/ms-api-property-settlement-ms-dev/export/01725526950531-767458a4'
+              # bucket= 'onedata-pexakey-042775015153-dev'
+              # prefix='pexa_key_property_settlement/full_load/20240905_090226/' 
+              
+              #### Specify the source and destination bucket names
+              source_bucket_name = bucket
+              source_prefix=prefix+'AWSDynamoDB/'+arn.split("/export/",1)[-1]+'/data'
+              destination_bucket_name = bucket
+              destination_prefix=prefix.split('/',1)[0]+'/processing/'+prefix.split('/',3)[2]+'/'+prefix.split('/',4)[3]+'/'+prefix.split('/',5)[4]
+              dynamodb_table_name=prefix.split('/',1)[0]
+              print(source_prefix)
+              print(destination_prefix)
+
+              # List objects in the source bucket
+              response = s3_client.list_objects_v2(Bucket=source_bucket_name  ,Prefix=source_prefix)
+              print(response)   
+              logger.info(f'****STARTED: Copying files from {source_bucket_name}/{source_prefix} to {destination_bucket_name}/{destination_prefix}**********')
+              # Copy the files into the destination_prefix
+              
+              for obj in response['Contents']:
+                  source_key = obj['Key']
+                  print(source_key)
+
+                  
+                  filename = source_key.split('/')[-1]
+                  destination_key=destination_prefix+'/'+dynamodb_table_name+'_Full_Load_'+filename
+                  
+                  
+                  copy_source = {'Bucket': source_bucket_name, 'Key': source_key}
+                  s3_client.copy_object(Bucket=destination_bucket_name, Key=destination_key, CopySource=copy_source)
+              
+              logger.info(f'****COMPLETED: Copying files from {source_bucket_name}/{source_prefix} to {destination_bucket_name}/{destination_prefix}**********')
+                  
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('COMPLETE')
+                
+              }  
+              
+
+        
+      MemorySize: 512
+      Timeout: 600
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      
+      
+
+  onedataPexaKeyDynamodbExportToS3:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub onedata-pexakey-dynamodb-exporttos3-${Environment}
+      Description: 'The lambda function invokes the exporttos3 dynamodb function and checks the status of export'
+      Role: !GetAtt DynamoDBExportToS3LambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          from datetime import datetime 
+          import json
+          import os
+          import logging
+
+          logger = logging.getLogger()
+          date=datetime.now().strftime("%Y")+'/'+datetime.now().strftime("%m")+'/'+datetime.now().strftime("%d")
+          # Assuming a role in a different AWS account
+          sts_client = boto3.client('sts')
+
+
+          def lambda_handler(event, context):
+              print(event)
+              table_name=event['table']
+              source_aws_account=event['source_aws_account'] 
+              AWS_Account=os.environ['AWS_Account']
+              AWS_env=os.environ['AWS_env']
+              S3_bucket=os.environ['S3_bucket']
+              try:
+                  job=event['type']
+                  
+              except:
+                  job=''
+              try:
+                  dynamodbExportArn=event['arn']
+              except:
+                  dynamodbExportArn=''
+              logger.info('job_type:'+job) 
+              logger.info('dynamodbExportArn:'+dynamodbExportArn)
+              # Using the assumed role's credentials to list DynamoDB tables
+              
+              assumed_role_object = sts_client.assume_role(
+                  RoleArn=f"arn:aws:iam::{source_aws_account}:role/onedata-pexakey-dynamodb-export-to-s3-role-{AWS_env}",
+                  RoleSessionName="DataNonProdAssumeRoleSessiontmp"
+                  ) 
+              credentials = assumed_role_object['Credentials']
+              dynamodb = boto3.client(
+                  'dynamodb',
+                  aws_access_key_id=credentials['AccessKeyId'],
+                  aws_secret_access_key=credentials['SecretAccessKey'],
+                  aws_session_token=credentials['SessionToken'],
+              )
+              if table_name=='' or source_aws_account=='':
+                  return {
+                  'statusCode': 400,
+                  'body': json.dumps("No Table name ")
+                  
+                  } 
+
+              # Export DynamoDB table
+              try:
+                  if job == 'CHECK_STATUS':
+                      response_status = dynamodb.describe_export(
+                              ExportArn=dynamodbExportArn
+                            
+                      ) 
+                      print(response_status['ExportDescription'])
+                      return {
+                          'statusCode': 200,
+                          'body': json.dumps('Checking complete'),
+                          'export_status': response_status['ExportDescription']['ExportStatus'],
+                          'export_bucket': response_status['ExportDescription']['S3Bucket'],
+                          'export_prefix': response_status['ExportDescription']['S3Prefix'],
+                          'export_table' : response_status['ExportDescription']['TableArn']
+                          
+                      }    
+                  elif job == 'EXECUTE_FULL_LOAD':
+                      response=dynamodb.export_table_to_point_in_time(
+                          TableArn=f'arn:aws:dynamodb:ap-southeast-2:{source_aws_account}:table/{table_name}',
+                          S3Bucket=f'{S3_bucket}',
+                          S3BucketOwner=f'{AWS_Account}',
+                          S3Prefix=f'{table_name}/full_load/{date}/',
+                          S3SseAlgorithm='KMS',
+                          S3SseKmsKeyId=f'arn:aws:kms:ap-southeast-2:{AWS_Account}:alias/onedata-pexakey-{AWS_Account}-{AWS_env}',
+                          ExportFormat='DYNAMODB_JSON'
+                          )
+                      
+                      print(response['ExportDescription'])
+                      
+                      return {
+                      'statusCode': 200,
+                      'body': json.dumps("Table export initiated"), 
+                      'extract_arn': response['ExportDescription']['ExportArn']
+                    
+                      } 
+                      
+                    
+                  else:
+                      return {
+                      'statusCode': 400,
+                      'body': json.dumps("Not the right execution type found")
+                    
+                      } 
+                  
+              except Exception as e:
+                  logger.info(e)
+                  print(e)
+      MemorySize: 128
+      Timeout: 30
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512
+      Environment:
+        Variables:
+          AWS_Account: !Sub '${AWS::AccountId}'
+          S3_bucket: !Sub 'onedata-pexakey-${AWS::AccountId}-${Environment}'
+          AWS_env: !Sub '${Environment}'
+      
+  onedataPexaKeyDynamodbExportToS3StateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub onedata-pexakey-dynamodb-exporttos3-statemachine-${Environment}
+      DefinitionString: |
+        {
+          "Comment": "The Step function does a PEXAKEY dynamodb full extract based on input in json format {\"table\": \"ms-api-property-settlement-ms-dev(dynamo table name)\",\"source_aws_account\": \"570723136177(dynaodbtable AWS account id)\"}",
+          "StartAt": "onedata pexakey dynamodb extraction",
+          "States": {
+            "onedata pexakey dynamodb extraction": {
+              "Type": "Task",
+              "Resource": "${onedataPexaKeyDynamodbExportToS3Arn}",
+              "Parameters": {
+                "type": "EXECUTE_FULL_LOAD",
+                "arn": "",
+                "table.$": "$$.Execution.Input.table",
+                "source_aws_account.$": "$$.Execution.Input.source_aws_account"
+              },
+              "ResultPath": "$.extract_status",
+              "Next": "Wait X Seconds"
+            },
+            "Wait X Seconds": {
+              "Type": "Wait",
+              "Next": "get export status",
+              "Seconds": 300
+            },
+            "get export status": {
+              "Type": "Task",
+              "Resource": "${onedataPexaKeyDynamodbExportToS3Arn}",
+              "Next": "Job Complete?",
+              "Parameters": {
+                "type": "CHECK_STATUS",
+                "arn.$": "$.extract_status.extract_arn",
+                "table.$": "$$.Execution.Input.table",
+                "source_aws_account.$": "$$.Execution.Input.source_aws_account"
+              },
+              "ResultPath": "$.export_status"
+            },
+            "Job Complete?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.export_status.export_status",
+                  "StringEquals": "FAILED",
+                  "Next": "Job Failed"
+                },
+                {
+                  "Variable": "$.export_status.export_status",
+                  "StringEquals": "COMPLETED",
+                  "Next": "Copy File to snowflake staging"
+                }
+              ],
+              "Default": "Wait X Seconds"
+            },
+            "Job Failed": {
+              "Type": "Fail",
+              "Cause": "AWS Batch Job Failed",
+              "Error": "DescribeJob returned FAILED"
+            },
+            "Copy File to snowflake staging": {
+              "Type": "Task",
+              "Resource": "${onedataPexaKeyDynamodbExportCpToStagingArn}",
+              "Parameters": {
+                "type": "check_status",
+                "s3_bucket.$": "$.export_status.export_bucket",
+                "s3_prefix.$": "$.export_status.export_prefix",
+                "export_table.$": "$.export_status.export_table",
+                "arn.$": "$.extract_status.extract_arn"
+              },
+              "End": true
+            }
+          }
+        }
+      DefinitionSubstitutions: 
+        onedataPexaKeyDynamodbExportToS3Arn: !GetAtt onedataPexaKeyDynamodbExportToS3.Arn
+        onedataPexaKeyDynamodbExportCpToStagingArn: !GetAtt onedataPexaKeyDynamodbExportCpToStaging.Arn
+      RoleArn: !GetAtt DynamoDBExportToS3StepFunctionRole.Arn    
+          
+  
+  

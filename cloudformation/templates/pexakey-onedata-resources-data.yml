@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Resources for PEXA key data in DynamoDB export to S3 bucket in Data Accounts
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub pexakey-one-data-dynamodb-export-${Environment}-${AWS::AccountId}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt KMSCMK.Arn
+            BucketKeyEnabled: true
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      # PolicyDocument:
+      #   Statement:
+      #     - Sid: AllowDynanoDBExport
+      #       Effect: Allow
+      #       Action:
+      #         - s3:TO_BE_UPDATED
+      #         - s3:TO_BE_UPDATED
+      #       Resource:
+      #         - !Sub arn:aws:s3:::${TO_BE_UPDATED}
+      #         - !Sub arn:aws:s3:::${TO_BE_UPDATED}/*
+      #       Principal: TO_BE_UPDATED
+
+  KMSCMK:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for S3 bucket encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+          Action: kms:*
+          Resource: '*'
+        # - Sid: Enable permissions for Digital Account IAM role
+        #   Effect: Allow
+        #   Principal: TO_BE_UPDATED
+        #   Action: 
+        #     - kms:TO_BE_UPDATED
+        #   Resource: '*'
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: 'pexakey-one-data-dynamodb-export'
+
+  KMSCMKAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/pexakey-one-data-dynamodb-export-${Environment}-${AWS::AccountId}-key
+      TargetKeyId: !Ref KMSCMK
+
+  DynamoDBExportToS3LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-dynamodb-s3-export-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBExportToS3LambdaRole
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              # - Effect: TO_BE_UPDATED
+              #   Action:
+              #     - s3:GetObject
+              #     - s3:PutObject
+              #     - s3:ListBucket
+              #   Resource: "*"
+
+  DynamoDBExportToS3LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-dynamodb-s3-export-lambda"
+      Handler: index.lambda_handler
+      Role: !GetAtt DynamoDBExportToS3LambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import socket
+          def lambda_handler(event, context):
+              # LAMBDA_CODE_TO_BE_UPDATED
+      Runtime: python3.12
+      Timeout: 900
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Capability
+          Value: 'DynamoDBExportToS3'
+
+  EventbridgeTriggerRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: Rule to trigger the DynamoDB Export to S3 Lambda function
+      Name: !Sub "${Environment}-dynamodb-export-to-S3-lambda-trigger-rule"
+      # ScheduleExpression: "cron(0 14 * * ? *)" TO_BE_UPDATED
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt DynamoDBExportToS3LambdaFunction.Arn
+          Id: !Sub "${Environment}-dynamodb-export-to-S3-lambda-target"
+          # Input: !Sub '{"region": "${Region}"}' TO_BE_UPDATED
+
+  DynamoDBExportToS3LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt DynamoDBExportToS3LambdaFunction.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EventbridgeTriggerRule.Arn

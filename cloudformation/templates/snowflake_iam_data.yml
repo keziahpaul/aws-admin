@@ -1,0 +1,95 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Snowflake IAM role and policy for Egress S3 bucket access"
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: "Name of the S3 bucket to be accessed by the OneDataSnowflakeIAMRole"
+  SnowflakePrincipalArn:
+    Type: String
+    Description: "Snowflake Account ID"
+  SnowflakeExternalId:
+    Type: String
+    Description: "Snowflake External ID"
+  SnowflakePxPrincipalArn:
+    Type: String
+    Description: "Snowflake Px Account ID"
+  SnowflakePxExternalId:
+    Type: String
+    Description: "Snowflake Px External ID"
+  Environment:
+    Type: String
+    Description: "Environment name"
+  IAMRoleName:
+    Type: String
+  KMSKeyResourceType:
+    Type: String
+    Description: "KMS Key resource Type"
+  KMSKeyResourceValue:
+    Type: String
+    Description: "KMS Key resource Value"
+  Account:
+    Type: String
+    Description: "Target Account number"
+    Default: NA
+
+
+
+Resources:
+  IAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:  !Sub "${IAMRoleName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              AWS: !Ref SnowflakePrincipalArn
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref SnowflakeExternalId
+          -
+            Effect: "Allow"
+            Principal:
+              AWS: !Ref SnowflakePxPrincipalArn
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref SnowflakePxExternalId
+      Path: "/"
+      Policies:
+        -
+            PolicyName: !Sub "${IAMRoleName}-access-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${S3BucketName}"
+                  - !Sub "arn:aws:s3:::${S3BucketName}/*"
+                  - !Sub "arn:aws:s3:::onedata-kapiche-archive*"
+                  - !Sub "arn:aws:s3:::onedata-ingress-${AWS::AccountId}-${Environment}"
+                  - !Sub "arn:aws:s3:::onedata-ingress-${AWS::AccountId}-${Environment}/*"
+                
+        -
+            PolicyName: !Sub "${IAMRoleName}-kms-access-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                Resource: 
+                  - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:${KMSKeyResourceType}/${KMSKeyResourceValue}"
+                

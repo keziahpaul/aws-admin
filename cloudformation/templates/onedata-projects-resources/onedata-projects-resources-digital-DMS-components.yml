@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Source (Projects RDS Postgres DB) and Target (S3) Endpoints for DMS Tasks
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+  SubnetIDs:
+    Type: List<AWS::EC2::Subnet::Id>
+  DigitalVPCID:
+    Type: AWS::EC2::VPC::Id
+  DigitalVPCCidr:
+    Type: String
+  SrcDB:
+    Type: String
+
+
+Resources:
+  
+  OnedataProjectsDMSSourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      DatabaseName: !Sub ${SrcDB}
+      EndpointIdentifier: !Sub onedata-projects-src-db-${Environment}
+      EndpointType: source
+      EngineName: postgres
+      PostgreSqlSettings: 
+        CaptureDdls: false
+        HeartbeatEnable: true
+        SecretsManagerSecretId: !Sub "${Environment}-onedata-projects-dms-src-creds"
+        SecretsManagerAccessRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-projects-dms-role"
+      ResourceIdentifier: !Sub onedata-projects-src-db-${Environment}
+      SslMode: require
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+  
+  OnedataProjectsDMSTargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub onedata-projects-tgt-s3-${Environment}
+      EndpointType: target
+      EngineName: s3
+      S3Settings: 
+        CsvDelimiter: "|"
+        CsvRowDelimiter: "\\r\\n"
+        BucketName: !Sub "onedata-projects-${AWS::AccountId}-${Environment}"
+        BucketFolder: "rds-dms-extract/"
+        CompressionType: "GZIP"
+        DataFormat: "csv"
+        TimestampColumnName: "Extraction_Start_TS"
+        DatePartitionEnabled: "false"
+        AddColumnName: "true"
+        IncludeOpForFullLoad: "true"
+        EncryptionMode: "SSE_KMS"
+        ServerSideEncryptionKmsKeyId: 
+          Fn::ImportValue: !Sub 'onedata-projects-resources-digital-s3-iam-${Environment}:onedata-projects-kms-key-id'
+        ServiceAccessRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-projects-dms-role
+      ResourceIdentifier: !Sub onedata-projects-tgt-s3-${Environment}
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+  OnedataProjectsDMSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${Environment} Security Group for DMS in Digital ${Environment} VPC"
+      GroupName: !Sub ${Environment}-onedata-projects-dms-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Sub ${DigitalVPCCidr}
+          Description: "DMS VPC Traffic Inbound"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Sub ${DigitalVPCCidr}
+          Description: "DMS VPC Traffic Outbound"
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: "0.0.0.0/0"
+          Description: "DMS VPC S3(all) Connectivity"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Sub ${DigitalVPCCidr}
+          Description: "DMS VPC S3 Connectivity"
+      VpcId: !Ref DigitalVPCID
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+        - Key: Name
+          Value: !Sub ${Environment}-onedata-projects-dms-sg
+
+  OnedataProjectsDMSReplicationSubnetGroup:
+    Type: AWS::DMS::ReplicationSubnetGroup
+    Properties:
+      ReplicationSubnetGroupDescription: "Subnet group for ONEData DMS Task"
+      ReplicationSubnetGroupIdentifier: !Sub one-projects-dms-subnet-group-${Environment}
+      SubnetIds: !Ref SubnetIDs
+      Tags: 
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+Outputs:
+  OnedataProjectsDMSSourceEndpointARN:
+    Description: Source Endpoint ARN
+    Value: !Ref OnedataProjectsDMSSourceEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataProjectsDMSSourceEndpointARN
+  OnedataProjectsDMSTargetEndpointARN:
+    Description: Target Endpoint ARN
+    Value: !Ref OnedataProjectsDMSTargetEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataProjectsDMSTargetEndpoint
+  OnedataProjectsDMSSecurityGroupID:
+    Description: Security Group ID
+    Value: !Ref OnedataProjectsDMSSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataProjectsDMSSecurityGroup
+  OnedataProjectsDMSReplicationSubnetGroupName:
+    Description: Replication Subnet Group Name
+    Value: !Ref OnedataProjectsDMSReplicationSubnetGroup
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataProjectsDMSReplicationSubnetGroup

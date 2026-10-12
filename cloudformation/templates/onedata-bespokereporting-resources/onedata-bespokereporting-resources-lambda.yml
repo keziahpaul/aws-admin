@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Lambda for Bespoke reports
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  SecurityGroupId:
+    Type: String
+  SubnetId:
+    Type: String
+  BespokeReportingS3Bucket:
+    Type: String
+  OneDataSharedUtilityS3Bucket:
+    Type: String
+  CoreAccount:
+    Type: String
+  GitSha:
+    Type: String
+    Description: Git commit SHA to use as version identifier for Lambda code
+
+
+Resources:
+
+## Lambda execution role for Bespoke reports
+  BespokeLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub onedata-${Environment}-bespoke-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+
+        - PolicyName: BespokeLambdaCrossAccountPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:List*
+                  - s3:Get*
+                  - s3:Put*
+
+                Resource:
+                  - !Sub "arn:aws:s3:::fms-pexa-reports-transfer-${Environment}/*"
+                  - !Sub "arn:aws:s3:::pexa-fileserver-transfer-${Environment}"
+                  - !Sub "arn:aws:s3:::fms-pexa-reports-transfer-${Environment}/*"
+                  - !Sub "arn:aws:s3:::pexa-fileserver-transfer-${Environment}/*"
+
+          ## s3 Policy
+        - PolicyName: BespokeLambdaS3AccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:List*
+                Resource:
+                  - !Sub "arn:aws:s3:::${BespokeReportingS3Bucket}-${Account}-${Environment}"
+                  - !Sub "arn:aws:s3:::${BespokeReportingS3Bucket}-${Account}-${Environment}/*"
+
+                  - !Sub "arn:aws:s3:::${OneDataSharedUtilityS3Bucket}-${Environment}-${Account}"
+                  - !Sub "arn:aws:s3:::${OneDataSharedUtilityS3Bucket}-${Environment}-${Account}/*"
+
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "arn:aws:s3:::${BespokeReportingS3Bucket}-${Account}-${Environment}/temp/*"
+
+          ## Secrets Manager Policy
+        - PolicyName: BespokeLambdaSecretsManagerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: "*"
+
+          ## eC2 network Policy
+        - PolicyName: BespokeLambdaEC2NetworkInterfacePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: "*"
+
+          ## Cloud watch logs Policy
+        - PolicyName: BespokeLambdaCloudWatchLogsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${Account}:log-group:/aws/lambda/onedata-bespoke*"
+
+          ## KMS Key Policy
+        - PolicyName: BespokeLambdaKMSPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Policy for the specific KMS key without the condition
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                Resource:
+                  - !Sub arn:aws:kms:${AWS::Region}:${CoreAccount}:key/*
+
+              # Policy for other KMS keys with the condition
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:Encrypt
+                  - kms:GenerateDataKey
+                Resource:
+                  - !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
+                Condition:
+                  ForAnyValue:StringEquals:
+                    kms:ResourceAliases:
+                      - !Sub "alias/onedata-egress-${AWS::AccountId}-${Environment}"
+
+  BespokeLambdaLayers:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: pyzipper-layer
+      Description: Contains pyzipper, requests, pytz and msal packages
+      Content:
+        S3Bucket: !Sub ${OneDataSharedUtilityS3Bucket}-${Environment}-${Account}
+        S3Key: !Sub bespoke_report/${GitSha}/pyzipper-layer.zip
+      CompatibleRuntimes:
+        - python3.12
+
+  BespokeLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub onedata-bespoke-s3-extract-lambda-${Environment}
+      Handler: bespoke_report_extract_lambda.lambda_handler
+      Role: !GetAtt BespokeLambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Sub ${OneDataSharedUtilityS3Bucket}-${Environment}-${Account}
+        S3Key: !Sub bespoke_report/${GitSha}/bespoke_report_extract_lambda.zip
+      Runtime: python3.12
+      Timeout: 900
+      MemorySize: 512
+      VpcConfig:
+        SecurityGroupIds:
+        - !Ref SecurityGroupId
+        SubnetIds:
+        - !Ref SubnetId
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+      Layers:
+        - !Ref BespokeLambdaLayers
+
+
+  # Lambda Permission for S3
+  BespokeReportingLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt BespokeLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn:
+        Fn::Sub:
+        - 'arn:aws:s3:::${BucketName}'
+        - BucketName: !ImportValue
+            'Fn::Sub': "onedata-bespokereporting-resources-s3-${Environment}:onedata-Bespokereporting-bucket-name"
+
+Outputs:
+  BespokeReportLambdaArn:
+    Description: ARN of the Bespoke Report Lambda
+    Value: !GetAtt BespokeLambdaFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}:BespokeReportLambdaArn"

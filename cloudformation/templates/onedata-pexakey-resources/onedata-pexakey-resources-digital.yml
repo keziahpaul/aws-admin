@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Resources for PEXA key data in DynamoDB export to S3 bucket in Digital Account
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OneDataAccount:
+    Type: String
+  OneDataAccount:
+    Type: String
+
+Resources:
+  DynamoDBExportToS3RoleForLambda:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub onedata-pexakey-dynamodb-export-to-s3-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${OneDataAccount}:role/onedata-pexakey-lambda-role-${Environment}
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBExportToS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:ExportTableToPointInTime
+                Resource: 
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-settlement-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-store-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-bank-account-store-ms-${Environment}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-bank-account-store"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-property-store"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-web-app-registration"
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                Resource: 
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-settlement-ms-${Environment}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-bank-account-store-ms-${Environment}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-store-ms-${Environment}  
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-bank-account-store
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-property-store
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-web-app-registration
+              - Effect: Allow
+                Action: 
+                  - dynamodb:DescribeStream
+                  - dynamodb:GetRecords
+                  - dynamodb:GetShardIterator
+                  - dynamodb:ListStreams
+                Resource: 
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-settlement-ms-${Environment}/stream/*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-bank-account-store-ms-${Environment}/stream/*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ms-api-property-store-ms-${Environment}/stream/*  
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-bank-account-store/*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-ms-api-property-store/*
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Environment}-sot-web-app-registration/stream/*
+              - Effect: Allow
+                Action:
+                  - dynamodb:DescribeExport
+                  - dynamodb:ListTables
+                  - dynamodb:ListStreams
+                Resource: 
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                  - s3:GetObjectAcl
+                  - s3:GetObject
+                  - s3:List*
+                Resource:
+                  - !Sub arn:aws:s3:::onedata-pexakey-${OneDataAccount}-${Environment}
+                  - !Sub arn:aws:s3:::onedata-pexakey-${OneDataAccount}-${Environment}/*
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:ReEncrypt*
+                  - kms:Decrypt*
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource:
+                  - !Sub arn:aws:kms:ap-southeast-2:${OneDataAccount}:key/*
+                Condition:
+                  ForAnyValue:StringLike:
+                    "kms:ResourceAliases": !Sub "alias/onedata-pexakey*${Environment}*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/onedata-pexakey*
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*onedata*pexakey*${Environment}*
+             
+
+  onedatapexakeydynamodbtos3:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub onedata-pexakey-dynamodb-streams-${Environment}
+      Description: 'The lambda function invokes the exporttos3 dynamodb function and checks the status of export'
+      Role: !GetAtt DynamoDBExportToS3RoleForLambda.Arn
+      Environment:
+        Variables:
+          BUCKET: !Sub 'onedata-pexakey-${OneDataAccount}-${Environment}'
+          SLACK_URL: !Sub /onedata/pexakey/${Environment}/slack_url
+      Layers:
+        - !Sub arn:aws:lambda:ap-southeast-2:336392948345:layer:AWSSDKPandas-Python312:13
+      Code:
+        ZipFile: |
+          import json
+          from datetime import datetime
+          import re
+          import boto3
+          import gzip
+          import io 
+          import os
+          import requests 
+          lambdaLogStreamName=os.environ['AWS_LAMBDA_LOG_STREAM_NAME']
+          lambdaLogGroupName=os.environ['AWS_LAMBDA_LOG_GROUP_NAME']
+          alert_url = os.environ['SLACK_URL'] 
+          s3 = boto3.client('s3')
+          s3_res = boto3.resource('s3')
+          sm_client = boto3.client('secretsmanager')
+
+          def get_secret(secret_name):
+              get_secret_value_response = sm_client.get_secret_value(SecretId=secret_name)
+              secret = get_secret_value_response['SecretString'] 
+              return secret
+            
+          def error_notification(err,msg):
+              alert_url=get_secret(os.environ['SLACK_URL'])
+              slack_response = requests.post(alert_url, json={"text": msg})
+              
+            
+          def lambda_handler(event, context):
+              try:
+                  bucket_name=os.environ['BUCKET']
+                  current_year,current_month,current_day=datetime.today().strftime('%Y'),datetime.today().strftime('%m'),datetime.today().strftime('%d')
+                  dynamodb_table_arn=event['Records'][0]['eventSourceARN']
+                  dynamodb_eventID=event['Records'][0]['eventID']
+                  dynamodb_table_name = dynamodb_table_arn.split(':')[5] .split('/')[1]
+                  print(dynamodb_table_name)
+                  print('******event***********')
+                  print(json.dumps(event, indent=2))
+                  print('******end of event***********')
+                  combined_objects = []  # To store all records
+                  for record in event['Records']:
+                      item = {"Item": { }}
+                      item["Item"].update(record["dynamodb"]["Keys"])
+                      if "NewImage" in record["dynamodb"]:
+                          item["Item"].update(record['dynamodb']['NewImage'])
+                      item["Item"].update({"ApproximateCreationDateTimeUTC": (datetime.fromtimestamp(record['dynamodb']['ApproximateCreationDateTime'])).strftime('%Y-%m-%d %H:%M:%S') })
+                      item["Item"].update({"eventName": record["eventName"]})
+                      combined_objects.append(item)
+                  print(f"DynamoDB Records: {json.dumps(combined_objects)}")
+                  
+                  s3_path = f'{dynamodb_table_name}/processing/{current_year}/{current_month}/{current_day}/{dynamodb_table_name}_{current_year}{current_month}{current_day}_{dynamodb_eventID}.json.gz'
+                  print(s3_path)
+                  bucket = s3_res.Bucket(bucket_name) 
+                
+                  inmem = io.BytesIO()
+                  with gzip.GzipFile(fileobj=inmem, mode='wb') as fh: 
+                    with io.TextIOWrapper(fh, encoding='utf-8') as wrapper:
+                      for items in combined_objects:
+                        wrapper.write(json.dumps(items, ensure_ascii=False, default=None))
+                        wrapper.write('\n')
+                  inmem.seek(0)
+                  s3.put_object(Bucket=bucket_name, Body=inmem, Key=s3_path)
+                      
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Success')
+                  }
+              except Exception as e:
+                  msg=f"Error: {str(e)} \nPlease check below for more details: \n Stream EventId: {dynamodb_eventID} \n AWS LogGroup Name: {lambdaLogGroupName}  \n AWS LogStream Name: {lambdaLogStreamName} "
+                  message_text='\n* FAILED: PEXAKEY Stream '+dynamodb_table_name+'*\n'+ '\n\n' + '```\n' + msg + '\n```' 
+                  error_notification(str(e),message_text)
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(f"Error: {str(e)}")
+                  }
+                  
+
+      MemorySize: 128
+      Timeout: 300
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      EphemeralStorage:
+        Size: 512 
+  
+  onedataPexakeySlackUrlSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub /onedata/pexakey/${Environment}/slack_url
+      Description: !Sub This secret has SLACK url to send slack message on onedata ${Environment} notification channel
+     
+
+  onedatapexakeydynamodbtos3PropSettlementESM:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      StartingPosition: LATEST
+      EventSourceArn: 
+        Fn::ImportValue:
+          !Sub "ms-api-property-settlement-ms-${Environment}-StreamARN"
+      FunctionName: !GetAtt onedatapexakeydynamodbtos3.Arn
+  
+  
+  onedatapexakeydynamodbtos3BankStoreESM:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      StartingPosition: LATEST
+      EventSourceArn: !Sub "{{resolve:ssm:/dynamodb/${Environment}-sot-ms-api-bank-account-store/stream-arn}}"
+      FunctionName: !GetAtt onedatapexakeydynamodbtos3.Arn
+
+
+  onedatapexakeydynamodbtos3PropertyStoreESM:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      StartingPosition: LATEST
+      EventSourceArn: !Sub "{{resolve:ssm:/dynamodb/${Environment}-sot-ms-api-property-store/stream-arn}}"
+      FunctionName: !GetAtt onedatapexakeydynamodbtos3.Arn
+    
+
+  onedatapexakeydynamodbtos3WebAppRegistrationESM:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      StartingPosition: LATEST
+      EventSourceArn: !Sub "{{resolve:ssm:/dynamodb/${Environment}-sot-web-app-registration/stream-arn}}"
+      FunctionName: !GetAtt onedatapexakeydynamodbtos3.Arn
+    

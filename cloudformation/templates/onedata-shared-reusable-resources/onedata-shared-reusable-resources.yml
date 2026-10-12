@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  Generic S3 bucket for storing shared or common utilities.
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+
+
+Resources:
+  GenericLambdaCodeBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub "onedata-utility-shared-${Environment}-${AWS::AccountId}"
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt GenericLambdaCodeBucketKMSKey.Arn
+            BucketKeyEnabled: true
+
+  GenericLambdaCodeBucketKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for Generic Lambda Code Bucket
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+              - kms:DeleteAlias
+            Effect: Allow
+            Resource: "*"
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${Account}:role/pexa-one-data-group-snowflake-access' # may update this later to a diff role
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${AWS::AccountId}
+        - Key: team
+          Value: onedata-Bespokereporting
+
+
+  GenericLambdaCodeBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref GenericLambdaCodeBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole"
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Resource:
+              - !Sub "arn:aws:s3:::${GenericLambdaCodeBucket}"
+              - !Sub "arn:aws:s3:::${GenericLambdaCodeBucket}/*"
+
+
+Outputs:
+  LambdaCodeBucketName:
+    Description: Name of the generic S3 bucket for shared or common utilities
+    Value: !Ref GenericLambdaCodeBucket
+    Export:
+      Name: !Sub "${Environment}-LambdaCodeBucketName"

@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  IAM role for DMS Service
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+
+Resources:
+  
+  OnedataExchangeDMSIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-onedata-exchange-dms-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.ap-southeast-2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${Environment}-onedata-exchange-dms-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:              
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:ListObject
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:PutObjectTagging
+                Resource: 
+                  - !Sub "arn:aws:s3:::onedata-exchange-${AWS::AccountId}-${Environment}/*"
+                  - !Sub "arn:aws:s3:::onedata-exchange-${AWS::AccountId}-${Environment}"
+
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:ReEncrypt*
+                  - kms:Decrypt*
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource:
+                  - !Sub arn:aws:kms:ap-southeast-2:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringLike:
+                    "kms:ResourceAliases": !Sub "alias/onedata-exchange-kms-${AWS::AccountId}-${Environment}"
+
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub arn:aws:secretsmanager:ap-southeast-2:${AWS::AccountId}:secret:${Environment}-onedata-exchange-dms-src-creds*

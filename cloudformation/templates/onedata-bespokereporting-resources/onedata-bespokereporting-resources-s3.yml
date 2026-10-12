@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  This bucket is for Bespoke reports egress
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+
+
+Resources:
+
+  BespokeReportingS3:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub pexa-onedata-egress-${AWS::AccountId}-${Environment}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: GlacierRule
+            Prefix: archive
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: GLACIER
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt BespokereportingKMSKey.Arn
+            BucketKeyEnabled: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: anz/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: cba/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: westpac/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: nab/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: stockland/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: Internal/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: fms/
+          - Event: s3:ObjectCreated:*
+            Function:
+              Fn::Sub:
+                - '${LambdaFunctionName}'
+                - LambdaFunctionName: !ImportValue
+                    'Fn::Sub': "onedata-bespokereporting-resources-lambda-${Environment}:BespokeReportLambdaArn"
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: bendigo/                                          
+
+  BespokereportingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BespokeReportingS3
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${BespokeReportingS3}'
+              - !Sub 'arn:aws:s3:::${BespokeReportingS3}/*'
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${Account}:role/onedata-bespoke-snowflake-integration-role-${Environment}'
+
+
+
+  BespokereportingKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for bespoke reporting data storage
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable access bespoke report roles
+            Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+              - kms:DeleteAlias
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${Account}:role/onedata-bespoke-snowflake-integration-role-${Environment}'
+
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${AWS::AccountId}
+        - Key: team
+          Value: onedata-Bespokereporting
+
+
+  BespokereportingKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/onedata-egress-${AWS::AccountId}-${Environment}
+      TargetKeyId: !Ref BespokereportingKMSKey
+
+
+
+Outputs:
+  BespokereportingBucketName:
+    Description: S3 bucket name
+    Value: !Ref BespokeReportingS3
+    Export:
+      Name: !Sub "${AWS::StackName}:onedata-Bespokereporting-bucket-name"
+  BespokereportingKMSKeyId:
+    Value: !Ref BespokereportingKMSKey
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-Bespokereporting-kms-key-id
+  BespokereportingKMSKeyAlias:
+    Value: !Ref BespokereportingKMSKeyAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-Bespokereporting-kms-key-alias
+  BespokereportingKMSKeyArn:
+    Value: !GetAtt BespokereportingKMSKey.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-Bespokereporting-kms-key-arn

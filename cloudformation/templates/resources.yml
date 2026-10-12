@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  pexa-one-data-aws-admin
+
+Parameters:
+
+  Environment:
+    Type: String
+  Account:
+    Type: String
+
+
+
+
+Resources:
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub pexa-one-data-medallia-archive-${Environment}-${AWS::AccountId}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt KMSCMK.Arn
+            BucketKeyEnabled: true
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyGetDelete
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:DeleteObject
+            Resource:
+              - !Sub arn:aws:s3:::${S3Bucket}
+              - !Sub arn:aws:s3:::${S3Bucket}/*
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/PEXAAdmin"
+
+
+  KMSCMK:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for external data storage
+      EnableKeyRotation: true
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: !Sub pexa-one-data-medallia-archive
+
+  KMSCMKAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/pexa-one-data-medallia-archive-${Environment}-${AWS::AccountId}-key
+      TargetKeyId: !Ref KMSCMK
+
+
+Outputs:
+  BucketName:
+    Value: !Ref S3Bucket
+    Export:
+      Name: !Sub ${AWS::StackName}:bucket-name
+  KMSKeyId:
+    Value: !Ref KMSCMK
+    Export:
+      Name: !Sub ${AWS::StackName}:kms-key-id
+  KMSKeyAlias:
+    Value: !Ref KMSCMKAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:kms-key-alias
+  KMSKeyArn:
+    Value: !GetAtt KMSCMK.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:kms-key-arn

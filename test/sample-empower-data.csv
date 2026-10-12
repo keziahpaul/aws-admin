@@ -1,0 +1,4 @@
+employee_id,first_name,last_name,email,department,start_date,salary
+EMP001,John,Doe,john.doe@example.com,Engineering,2023-01-15,75000
+EMP002,Jane,Smith,jane.smith@example.com,Marketing,2023-02-20,65000
+EMP003,Bob,Johnson,bob.johnson@example.com,Sales,2023-03-10,70000

@@ -1,0 +1,4 @@
+requests<2.35
+pyzipper<0.5
+pytz<2027
+msal<=1.37.0

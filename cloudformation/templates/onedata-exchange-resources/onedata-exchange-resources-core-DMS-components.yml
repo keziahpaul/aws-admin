@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Source (Exchange Aurora Postgres DB) and Target (S3) Endpoints for DMS Tasks
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+  SubnetIDs:
+    Type: List<String>
+  CoreVPCID:
+    Type: AWS::EC2::VPC::Id
+  CoreVPCCidr:
+    Type: String
+  SrcDB:
+    Type: String
+  KMSKeyID:
+    Type: String
+    Default: 'Not Required'
+
+Resources:
+  
+  OnedataExchangeDMSSourceEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      DatabaseName: !Sub ${SrcDB}
+      EndpointIdentifier: !Sub onedata-exchange-src-db-${Environment}
+      EndpointType: source
+      EngineName: aurora-postgresql
+      PostgreSqlSettings: 
+        CaptureDdls: false
+        SecretsManagerSecretId: !Sub "${Environment}-onedata-exchange-dms-src-creds"
+        SecretsManagerAccessRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-exchange-dms-role"
+      ResourceIdentifier: !Sub onedata-exchange-src-db-${Environment}
+      SslMode: require
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+  
+  OnedataExchangeDMSTargetEndpoint:
+    Type: AWS::DMS::Endpoint
+    Properties:
+      EndpointIdentifier: !Sub onedata-exchange-tgt-s3-${Environment}
+      EndpointType: target
+      EngineName: s3
+      S3Settings: 
+        CsvDelimiter: "|"
+        CsvRowDelimiter: "\\r\\n"
+        BucketName: !Sub "onedata-exchange-${AWS::AccountId}-${Environment}"
+        BucketFolder: "rds-dms-extract/"
+        CompressionType: "GZIP"
+        DataFormat: "csv"
+        TimestampColumnName: "Extraction_Start_TS"
+        DatePartitionEnabled: "false"
+        AddColumnName: "true"
+        IncludeOpForFullLoad: "true"
+        EncryptionMode: "SSE_KMS"
+        ServerSideEncryptionKmsKeyId: 
+          Fn::ImportValue: !Sub 'onedata-exchange-resources-core-s3-${Environment}:onedata-exchange-kms-key-id'
+        ServiceAccessRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-exchange-dms-role
+      ResourceIdentifier: !Sub onedata-exchange-tgt-s3-${Environment}
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+  OnedataExchangeDMSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${Environment} Security Group for DMS in Core ${Environment} VPC"
+      GroupName: !Sub ${Environment}-onedata-exchange-dms-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Sub ${CoreVPCCidr}
+          Description: "DMS VPC Traffic Inbound"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: !Sub ${CoreVPCCidr}
+          Description: "DMS VPC Traffic Outbound"
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: "0.0.0.0/0"
+          Description: "DMS VPC S3 Connectivity"
+      VpcId: !Ref CoreVPCID
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+        - Key: Name
+          Value: !Sub ${Environment}-onedata-exchange-dms-sg
+
+Outputs:
+  OnedataExchangeDMSSourceEndpointARN:
+    Description: Source Endpoint ARN
+    Value: !Ref OnedataExchangeDMSSourceEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataExchangeDMSSourceEndpointARN
+  OnedataExchangeDMSTargetEndpointARN:
+    Description: Target Endpoint ARN
+    Value: !Ref OnedataExchangeDMSTargetEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataExchangeDMSTargetEndpoint
+  OnedataExchangeDMSSecurityGroupID:
+    Description: Security Group ID
+    Value: !Ref OnedataExchangeDMSSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}:OnedataExchangeDMSSecurityGroup

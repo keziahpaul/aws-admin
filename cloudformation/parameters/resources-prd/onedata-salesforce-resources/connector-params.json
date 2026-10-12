@@ -1,0 +1,40 @@
+[
+    {
+        "ParameterKey": "ConnectorType",
+        "ParameterValue": "Salesforce"
+    },
+    {
+        "ParameterKey": "ConnectionMode",
+        "ParameterValue": "Public"
+    },
+    {
+        "ParameterKey": "Environment",
+        "ParameterValue": "prd"
+    },
+    {
+        "ParameterKey": "KMSArn",
+        "ParameterValue": "onedata-ingress-s3-prd:onedata-ingress-kms-key-arn"
+       
+    },
+    {
+        "ParameterKey": "ClientCredentialsArn",
+        "ParameterValue": "arn:aws:secretsmanager:ap-southeast-2:725563543552:secret:onedata_salesforce_readonly_prd"
+    },
+    {
+        "ParameterKey": "SandboxFlag",
+        "ParameterValue": "true"
+    },
+    {
+        "ParameterKey": "InstanceURL",
+        "ParameterValue": "https://pexa.lightning.force.com"
+    },
+    {
+        "ParameterKey": "ConnectorProfileName",
+        "ParameterValue": "onedata-appflow-connector-prd"
+    },
+    {
+        "ParameterKey": "SecretName",
+        "ParameterValue": "onedata_salesforce_readonly_prd"
+    }
+    
+  ]

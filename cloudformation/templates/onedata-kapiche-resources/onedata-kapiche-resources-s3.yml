@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  Kapiche and OneData S3 to S3 Archives
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  KapicheAccount:
+    Type: String
+
+Resources:
+
+  KapicheArchiveS3:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub onedata-kapiche-archive-${AWS::AccountId}-${Environment}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt KapicheKMSKey.Arn
+            BucketKeyEnabled: true
+
+  KapicheArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref KapicheArchiveS3
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:ListBucket
+            Effect: Allow
+            Resource:
+              - !Sub 'arn:aws:s3:::${KapicheArchiveS3}'
+              - !Sub 'arn:aws:s3:::${KapicheArchiveS3}/*'
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${Account}:role/pexa-one-data-group-snowflake-access'
+
+
+
+  KapicheKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for Kapiche data storage
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable access kapiche key roles
+            Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+              - kms:DeleteAlias
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${Account}:role/pexa-one-data-group-snowflake-access'
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${AWS::AccountId}
+        - Key: team
+          Value: onedata-kapiche
+
+
+  KapicheKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/onedata-kapiche-${AWS::AccountId}-${Environment}
+      TargetKeyId: !Ref KapicheKMSKey
+
+
+
+
+
+
+Outputs:
+  KapicheArchiveBucketName:
+    Description: S3 bucket name
+    Value: !Ref KapicheArchiveS3
+    Export:
+      Name: !Sub "${AWS::StackName}:onedata-kapiche-archive-bucket-name"
+  KapicheKMSKeyId:
+    Value: !Ref KapicheKMSKey
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-kapiche-archive-kms-key-id
+  KapicheKMSKeyAlias:
+    Value: !Ref KapicheKMSKeyAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-kapiche-archive-kms-key-alias
+  KapicheKMSKeyArn:
+    Value: !GetAtt KapicheKMSKey.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-kapiche-archive-kms-key-arn

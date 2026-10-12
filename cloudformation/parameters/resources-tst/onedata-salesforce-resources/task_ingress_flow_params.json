@@ -1,0 +1,42 @@
+[
+    {
+        "ParameterKey": "Environment",
+        "ParameterValue": "tst"
+    },
+    {
+        "ParameterKey": "KMSArn",
+        "ParameterValue": "onedata-ingress-s3-tst:onedata-ingress-kms-key-arn"
+    },
+    {
+        "ParameterKey": "ConnectorProfile",
+        "ParameterValue": "onedata-appflow-connector-tst"
+    },
+    {
+        "ParameterKey": "IngressBucketName",
+        "ParameterValue": "onedata-ingress-042775015153-tst"
+    },
+    {
+        "ParameterKey": "IngressBucketPrefix",
+        "ParameterValue": "salesforce/inbound/task"
+    },
+    {
+        "ParameterKey": "FlowStartTimeSchedule1",
+        "ParameterValue": "1749178851"
+    },
+    {
+        "ParameterKey": "ScheduleExpression",
+        "ParameterValue": "rate(1hours)"
+    },
+    {
+        "ParameterKey": "DatetimeTypeFieldName",
+        "ParameterValue": "SystemModstamp"
+    },
+    {
+        "ParameterKey": "FileType",
+        "ParameterValue": "JSON"
+    },
+    {
+        "ParameterKey": "Object",
+        "ParameterValue": "Task"
+    }
+]

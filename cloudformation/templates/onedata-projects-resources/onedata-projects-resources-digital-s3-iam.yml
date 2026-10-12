@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: >
+  S3 Bucket in Digital Account as destination for DMS
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  OnedataAccount:
+    Type: String
+
+
+# KMS encrypted S3 bucket as a Target for DMS replication
+Resources:
+  OnedataProjectsS3:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub onedata-projects-${AWS::AccountId}-${Environment}
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt OnedataProjectsKMSKey.Arn
+            BucketKeyEnabled: true
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+
+  OnedataProjectsKMSKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    Properties:
+      Description: KMS CMK for Projects S3 Bucket
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable access Snowflake role
+            Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+              - kms:DeleteAlias
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/${Environment}-onedata-snowflake-digitalegress-role'
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal:
+              AWS:
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+
+  OnedataProjectsKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    DeletionPolicy: Retain
+    Properties:
+      AliasName: !Sub alias/onedata-Projects-kms-${AWS::AccountId}-${Environment}
+      TargetKeyId: !Ref OnedataProjectsKMSKey
+
+
+  OnedataProjectsDMSIAMRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    Properties:
+      RoleName: !Sub "${Environment}-onedata-projects-dms-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dms.ap-southeast-2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${Environment}-onedata-projects-dms-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:              
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:PutObjectTagging
+                Resource: 
+                  - !Sub "arn:aws:s3:::onedata-projects-${AWS::AccountId}-${Environment}/*"
+                  - !Sub "arn:aws:s3:::onedata-projects-${AWS::AccountId}-${Environment}"
+
+              - Effect: Allow
+                Action:
+                  - kms:Encrypt
+                  - kms:ReEncrypt*
+                  - kms:Decrypt*
+                  - kms:GenerateDataKey
+                  - kms:GenerateDataKeyWithoutPlaintext
+                Resource:
+                  - !Sub arn:aws:kms:ap-southeast-2:${AWS::AccountId}:key/*
+
+              - Effect: Allow
+                Action:
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub arn:aws:secretsmanager:ap-southeast-2:${AWS::AccountId}:secret:${Environment}-onedata-projects-dms-src-creds*
+      Tags:
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: team
+          Value: onedata
+
+
+
+Outputs:
+  ProjectsKMSKeyId:
+    Value: !Ref OnedataProjectsKMSKey
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-projects-kms-key-id
+  ProjectsKMSKeyAlias:
+    Value: !Ref OnedataProjectsKMSKeyAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-projects-kms-key-alias
+  ProjectsKMSKeyArn:
+    Value: !GetAtt OnedataProjectsKMSKey.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-projects-kms-key-arn

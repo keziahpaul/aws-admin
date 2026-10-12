@@ -1,0 +1,69 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Snowflake IAM role and policy for Egress PROJECTS-S3 bucket access"
+
+Parameters:
+  Environment:
+    Type: String
+    Description: "Environment name"
+  SnowflakePrincipalArn:
+    Type: String
+    Description: "Snowflake Account ID"
+  SnowflakeExternalIdProjects:
+    Type: String
+    Description: "Snowflake External ID"
+  ProjectsS3BucketName:
+    Type: String
+    Description: "Name of the Projects S3 bucket to be accessed by the OneDataSnowflakeIAMRole"
+
+
+Resources:
+  IAMRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain 
+    Properties:
+      RoleName: !Sub "${Environment}-onedata-snowflake-digitalegress-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Principal:
+              AWS: !Ref SnowflakePrincipalArn
+            Action:
+              - "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                sts:ExternalId: [
+                  !Ref SnowflakeExternalIdProjects
+                ]
+      Path: "/"
+      Policies:
+        - 
+            PolicyName: "onedata-snowflake-digitalegress-role-s3-access-policy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource: [
+                  !Sub "arn:aws:s3:::${ProjectsS3BucketName}",
+                  !Sub "arn:aws:s3:::${ProjectsS3BucketName}/*"
+                ]
+        -
+            PolicyName: "onedata-snowflake-digitalegress-role-kms-access-policy-projects"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                Effect: "Allow"
+                Action:
+                  - "kms:Decrypt"
+                Resource:
+                  - !Sub arn:aws:kms:ap-southeast-2:${AWS::AccountId}:key/*
+                Condition:
+                  ForAnyValue:StringLike:
+                    "kms:ResourceAliases": !Sub "alias/onedata-projects-kms-${AWS::AccountId}-${Environment}"

@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  pexa-one-data-aws-admin
+
+Parameters:
+  Environment:
+    Type: String
+  Account:
+    Type: String
+  DigitalAccount:
+    Type: String
+  GatewayAccount:
+    Type: String
+
+Resources:
+  
+  PexaKeyLandingS3:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub onedata-pexakey-${AWS::AccountId}-${Environment}
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt PexaKeyLandingKMSCMK.Arn
+            BucketKeyEnabled: true
+
+  # bucket policy
+  PexaKeyLandingBucketPolicy: 
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PexaKeyLandingS3
+      PolicyDocument:
+        Statement:
+          - Action:
+              - s3:AbortMultipartUpload
+              - s3:PutObject
+              - s3:PutObjectAcl
+              - s3:List*
+            Effect: Allow
+            Resource: 
+              - !Sub 'arn:aws:s3:::${PexaKeyLandingS3}/*'
+              - !Sub 'arn:aws:s3:::${PexaKeyLandingS3}'
+            Principal: 
+              AWS: 
+                - !Sub 'arn:aws:iam::${DigitalAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}'
+                - !Sub 'arn:aws:iam::${GatewayAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}'
+          - Action:
+              - s3:GetObject
+              - s3:DeleteObject
+              - s3:List*
+            Effect: Deny
+            Resource: 
+              - !Sub 'arn:aws:s3:::${PexaKeyLandingS3}/*'
+              - !Sub 'arn:aws:s3:::${PexaKeyLandingS3}'
+            Principal: '*'
+            Condition:
+              ArnNotEquals:
+                aws:PrincipalArn: [ 
+                  !Sub 'arn:aws:iam::${AWS::AccountId}:role/onedata-pexakey-snowflake-integration-role-${Environment}',
+                  !Sub 'arn:aws:iam::${AWS::AccountId}:role/onedata-pexakey-lambda-role-${Environment}'
+                ]
+
+  PexaKeyLandingKMSCMK:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS CMK for PEXA Key data storage
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable access pexa key roles
+            Action:
+              - kms:Encrypt
+              - kms:ReEncrypt*
+              - kms:DescribeKey
+              - kms:GenerateDataKey
+              - kms:GenerateDataKeyWithoutPlaintext
+              - kms:Decrypt
+            Effect: Allow
+            Resource: '*'
+            Principal: 
+              AWS: 
+                - !Sub 'arn:aws:iam::${DigitalAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}'
+                - !Sub 'arn:aws:iam::${GatewayAccount}:role/onedata-pexakey-dynamodb-export-to-s3-role-${Environment}'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/onedata-pexakey-lambda-role-${Environment}'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/onedata-pexakey-snowflake-integration-role-${Environment}'
+
+          - Sid: Allow root access
+            Action:
+              - kms:*
+            Effect: Allow
+            Resource: '*'
+            Principal: 
+              AWS: 
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:role/GitHubRunnerPEXAOneDataRole'
+      Tags:
+        - Key: environment
+          Value: !Sub ${AWS::AccountId}
+        - Key: team
+          Value: onedata-pexakey
+
+
+  PexaKeyLandingKMSCMKAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/onedata-pexakey-${AWS::AccountId}-${Environment}
+      TargetKeyId: !Ref PexaKeyLandingKMSCMK
+
+       
+       
+
+
+  
+  
+Outputs:
+  PEXAKeyBucketName:
+    Description: S3 bucket name
+    Value: !Ref PexaKeyLandingS3
+    Export:
+      Name: !Sub "${AWS::StackName}:onedata-pexakey-landing-bucket-name"
+  PEXAKeyKMSKeyId:
+    Value: !Ref PexaKeyLandingKMSCMK
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-pexakey-landing-kms-key-id
+  PEXAKeyKMSKeyAlias:
+    Value: !Ref PexaKeyLandingKMSCMKAlias
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-pexakey-landing-kms-key-alias
+  PEXAKeyKMSKeyArn:
+    Value: !GetAtt PexaKeyLandingKMSCMK.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}:onedata-pexakey-landing-kms-key-arn

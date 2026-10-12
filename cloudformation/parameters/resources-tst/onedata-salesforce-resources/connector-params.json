@@ -1,0 +1,40 @@
+[
+    {
+        "ParameterKey": "ConnectorType",
+        "ParameterValue": "Salesforce"
+    },
+    {
+        "ParameterKey": "ConnectionMode",
+        "ParameterValue": "Public"
+    },
+    {
+        "ParameterKey": "Environment",
+        "ParameterValue": "tst"
+    },
+    {
+        "ParameterKey": "KMSArn",
+        "ParameterValue": "onedata-ingress-s3-dev:onedata-ingress-kms-key-arn"
+       
+    },
+    {
+        "ParameterKey": "ClientCredentialsArn",
+        "ParameterValue": "arn:aws:secretsmanager:ap-southeast-2:042775015153:secret:onedata_salesforce_readonly_uat"
+    },
+    {
+        "ParameterKey": "SandboxFlag",
+        "ParameterValue": "true"
+    },
+    {
+        "ParameterKey": "InstanceURL",
+        "ParameterValue": "https://pexa--uat.sandbox.my.salesforce.com"
+    },
+    {
+        "ParameterKey": "ConnectorProfileName",
+        "ParameterValue": "onedata-appflow-connector-tst"
+    },
+    {
+        "ParameterKey": "SecretName",
+        "ParameterValue": "onedata_salesforce_readonly_uat"
+    }
+    
+  ]
